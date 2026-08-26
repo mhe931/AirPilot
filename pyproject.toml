@@ -1,0 +1,57 @@
+[project]
+name = "airpilot"
+version = "0.1.0"
+description = "Privacy-first camera gesture control for Windows"
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+license = { text = "MIT" }
+authors = [{ name = "AirPilot Contributors" }]
+dependencies = [
+    "mediapipe>=0.10.14",
+    "opencv-python>=4.10.0.84",
+    "pyautogui>=0.9.54",
+]
+
+[project.optional-dependencies]
+dev = [
+    "mypy>=1.11.0",
+    "pytest>=8.3.0",
+    "ruff>=0.6.0",
+]
+package = [
+    "pyinstaller>=6.10.0",
+]
+
+[project.scripts]
+airpilot = "airpilot.app:main"
+
+[build-system]
+requires = ["hatchling>=1.25.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/airpilot"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+packages = ["airpilot"]
+warn_unused_ignores = true
+warn_redundant_casts = true
+disallow_any_generics = true
+
+[[tool.mypy.overrides]]
+module = ["cv2", "mediapipe", "pyautogui"]
+ignore_missing_imports = true
