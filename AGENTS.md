@@ -16,6 +16,8 @@ Android must remain documentation-only until explicitly requested.
 - Create a focused feature branch for each milestone; verify the current branch
   before editing.
 - Main is not branch-protected as of 2026-08-26.
+- Draft PR #3 tracks camera reconnect hardening and has passing CI; live gesture
+  validation still remains pending human observation.
 
 ## Architecture Paths
 

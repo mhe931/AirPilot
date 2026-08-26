@@ -11,9 +11,9 @@ hardware-tuning work should use short-lived focused feature branches off `main`.
 - Default branch: `main`
 - Main branch was unprotected when inspected on 2026-08-26.
 - PR #1 and PR #2 were merged when inspected on 2026-08-26.
-- No open issues or open PRs were present when inspected.
-- The latest CI runs on `main` and the most recent milestone PR completed
-  successfully.
+- No open issues were present when inspected.
+- Draft PR #3 is open for camera reconnect hardening.
+- The latest CI runs on `main` and draft PR #3 completed successfully.
 
 ## Completed
 
