@@ -2,18 +2,33 @@
 
 Run this checklist on Windows with a webcam.
 
-## Safe Preview
+## Terminal Startup
 
 ```powershell
 uv run --extra dev airpilot --list-cameras
+uv run --extra dev airpilot --camera 0 --diagnose-seconds 5
+```
+
+Pass:
+
+- Camera 0 is listed.
+- Diagnostics prints JSON with `frames > 0`, `frame_width > 0`, and
+  `frame_height > 0`.
+- If your hand is visible to the camera during the diagnostic, `hand_observed`
+  should be `true`.
+
+## Safe Preview
+
+```powershell
 uv run --extra dev airpilot --camera 0 --no-mouse
 ```
 
-Verify:
+Pass:
 
 - Preview window opens.
-- Camera-active state is visible.
-- Hand landmarks draw over the hand.
+- Overlay shows searching/tracking, active gesture, hand score, fps, mouse off,
+  and the control region rectangle.
+- Hand landmarks draw over the hand within 3 seconds when a hand is presented.
 - No frames are saved to the repo, config directory, or temp directory.
 - `q` and `Esc` stop the app.
 - `p` toggles pause/resume.
@@ -24,17 +39,20 @@ Verify:
 uv run --extra dev airpilot --camera 0
 ```
 
-Verify:
+Pass:
 
-- Cursor movement is smooth enough for target selection.
-- Cursor does not jump wildly on startup.
-- Thumb-index short pinch/release emits one left click.
-- Holding thumb-index starts drag; release drops.
-- Thumb-middle short pinch/release emits one right click.
-- Thumb-ring vertical movement scrolls in the expected direction.
-- Thumb-pinky hold pauses and resumes.
-- Removing the hand stops actions and releases drag.
+- App starts with `mouse safe`; moving your hand does not move the pointer.
+- Press `a`; overlay changes to `mouse armed`.
+- Cursor reaches all four quadrants without leaving the control region.
+- With five thumb-index pinch/releases, exactly five left clicks occur.
+- Holding thumb-index starts drag; pressing `p` or removing the hand releases it.
+- With five thumb-middle pinch/releases, exactly five right clicks occur.
+- Thumb-ring vertical movement scrolls only while the overlay says `scrolling`.
+- Thumb-pinky hold pauses and resumes without firing clicks.
+- Ambiguous multi-pinch shapes show conflict/cancel behavior, not combined
+  clicks.
 - Moving the pointer to a screen corner stops through PyAutoGUI failsafe.
+- Press `a` again; overlay returns to `mouse safe`.
 
 ## Edge Cases
 

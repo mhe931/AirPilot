@@ -14,7 +14,7 @@ input so the gesture model can be reused across platforms.
 ## Event Flow
 
 ```text
-OpenCVCamera -> MediaPipeHandTracker -> GestureEngine -> MouseController
+OpenCVCamera -> MediaPipeHandTracker -> GestureEngine -> MouseSafetyGate -> MouseController
                                       -> OpenCV status preview
 ```
 
@@ -31,6 +31,8 @@ Gestures are explicit states rather than one-frame classifications:
 - Clicks have cooldowns.
 - Tracking loss resets pending gestures and releases active drag.
 - Paused mode suppresses movement and actions.
+- Real mouse output is gated by an explicit safe/armed state.
+- Conflicting new pinches are canceled rather than emitted as combined actions.
 
 ## Runtime Defaults
 
@@ -50,6 +52,7 @@ Default cursor behavior:
 ## Failure Handling
 
 - Camera open/read failures produce a clear runtime error and clean shutdown.
+- Transient camera read failures are retried before surfacing an error.
 - Missing or invalid landmarks do not emit clicks.
 - Tracking loss reports status and resets cursor smoothing.
 - PyAutoGUI corner failsafe is enabled by default.

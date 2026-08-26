@@ -2,8 +2,8 @@
 
 ## Phase
 
-Phase 1 Windows vertical slice is implemented on branch
-`feature/windows-phase1-vertical-slice`.
+Phase 1 Windows vertical slice is implemented. Hardware-tuning work is on branch
+`feature/windows-hardware-tuning`.
 
 ## Repo State
 
@@ -22,6 +22,11 @@ Phase 1 Windows vertical slice is implemented on branch
 - Cursor mapper with calibration bounds, mirroring, smoothing, sensitivity, and
   dead-zone logic.
 - PyAutoGUI mouse adapter plus fake controller for tests.
+- Safe/armed mouse-output gate; real mouse mode starts safe by default.
+- Headless diagnostics mode for camera/tracker startup without pointer movement.
+- Camera backend fallback and transient read-failure retry.
+- Overlay/status lines show tracking state, active gesture, hand score, fps,
+  mouse state, and calibration region.
 - Config persistence under `%APPDATA%\AirPilot\config.json`.
 - Synthetic tests for gestures, mapping, tracking loss/recovery, config, and
   fake mouse event application.
@@ -35,6 +40,7 @@ Phase 1 Windows vertical slice is implemented on branch
 - `src/airpilot/camera.py`: OpenCV camera adapter.
 - `src/airpilot/tracking.py`: MediaPipe adapter.
 - `src/airpilot/input.py`: Windows mouse adapter and fake implementation.
+- `src/airpilot/safety.py`: safe/armed output gate.
 - `src/airpilot/app.py`: runtime loop and OpenCV preview/status UI.
 
 ## Commands
@@ -42,8 +48,10 @@ Phase 1 Windows vertical slice is implemented on branch
 ```powershell
 uv sync --extra dev
 uv run --extra dev airpilot --list-cameras
+uv run --extra dev airpilot --camera 0 --diagnose-seconds 5
 uv run --extra dev airpilot --camera 0 --no-mouse
 uv run --extra dev airpilot --camera 0
+uv run --extra dev airpilot --camera 0 --armed
 uv run --extra dev ruff format --check .
 uv run --extra dev ruff check .
 uv run --extra dev mypy src
@@ -59,28 +67,38 @@ Last local automated validation:
 - `uv run --extra dev ruff format --check .`
 - `uv run --extra dev ruff check .`
 - `uv run --extra dev mypy src`
-- `uv run --extra dev python -m pytest`
+- `uv run --extra dev python -m pytest`: 33 passed.
 - `powershell -ExecutionPolicy Bypass -File scripts\package_windows.ps1`
 - `dist\AirPilot\AirPilot.exe --help`
-- `dist\AirPilot\AirPilot.exe --list-cameras` detected `Camera 0`
+- `dist\AirPilot\AirPilot.exe --list-cameras` detected
+  `0: Camera 0 (DirectShow)`.
+- `dist\AirPilot\AirPilot.exe --config %TEMP%\airpilot-packaged-validation-config.json
+  --camera 0 --diagnose-seconds 3` opened Camera 0 through DirectShow and
+  processed 14 frames at 640x480, about 4.6 fps, with no hand observed.
 - Secret scan found only documentation/policy references to secrets/passwords,
   not credentials.
+- `uv run --extra dev airpilot --list-cameras` detected
+  `0: Camera 0 (DirectShow)`.
+- `uv run --extra dev airpilot --config %TEMP%\airpilot-validation-config.json
+  --camera 0 --diagnose-seconds 5` opened Camera 0 through DirectShow and
+  processed 43 frames at 640x480, about 8.5 fps, with no hand observed.
 
-Manual live tracking and real pointer validation still must be run on physical
-hardware.
+Manual live hand acquisition and real pointer gestures still must be run with a
+hand physically presented to the webcam.
 
 ## Known Issues
 
 - The package is unsigned.
-- Camera unplug/replug recovery currently exits gracefully instead of reconnecting.
+- Camera unplug/replug recovery retries transient frame-read failures but does
+  not reopen a disconnected camera yet.
 - Multi-monitor DPI and UAC/elevated-window behavior need manual validation.
 - Current emergency controls are preview-window `q`/`Esc`/`p` plus PyAutoGUI
   corner failsafe; no global hotkey or tray app yet.
 
 ## Next
 
-Run `docs/MANUAL_VALIDATION.md` on a Windows machine with a webcam and tune the
-gesture defaults from observations.
+Run the short interactive checklist in `docs/MANUAL_VALIDATION.md` with a hand
+in front of the laptop webcam and tune gesture defaults from observations.
 
 ## Decisions Not To Reverse Silently
 

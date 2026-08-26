@@ -30,13 +30,13 @@ class GestureConfig:
 class CursorConfig:
     screen_width: int = 1920
     screen_height: int = 1080
-    camera_min_x: float = 0.12
-    camera_max_x: float = 0.88
-    camera_min_y: float = 0.10
-    camera_max_y: float = 0.86
+    camera_min_x: float = 0.08
+    camera_max_x: float = 0.92
+    camera_min_y: float = 0.08
+    camera_max_y: float = 0.88
     sensitivity: float = 1.0
-    smoothing_alpha: float = 0.35
-    dead_zone_px: int = 4
+    smoothing_alpha: float = 0.28
+    dead_zone_px: int = 5
     mirror_x: bool = True
 
 
@@ -44,8 +44,10 @@ class CursorConfig:
 class RuntimeConfig:
     camera_index: int = 0
     max_camera_index: int = 4
+    camera_read_failures_before_error: int = 10
     draw_landmarks: bool = True
     enable_real_mouse: bool = True
+    start_armed: bool = False
     emergency_corner_failsafe: bool = True
     tracker_detection_confidence: float = 0.55
     tracker_tracking_confidence: float = 0.55

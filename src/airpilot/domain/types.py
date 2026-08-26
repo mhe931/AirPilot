@@ -55,4 +55,5 @@ class GestureEvents:
     paused_changed: bool = False
     paused: bool = False
     tracking_lost: bool = False
+    active_gesture: str = "none"
     status: str = "idle"

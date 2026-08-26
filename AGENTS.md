@@ -13,7 +13,7 @@ Android must remain documentation-only until explicitly requested.
 
 - Remote: `git@github.com:mhe931/AirPilot.git`
 - Default branch: `main`
-- Active feature branch for this milestone: `feature/windows-phase1-vertical-slice`
+- Active feature branch for this milestone: `feature/windows-hardware-tuning`
 - Main is not branch-protected as of 2026-08-26.
 
 ## Architecture Paths
@@ -22,6 +22,7 @@ Android must remain documentation-only until explicitly requested.
 - `src/airpilot/camera.py`: OpenCV camera adapter.
 - `src/airpilot/tracking.py`: MediaPipe hand-tracking adapter.
 - `src/airpilot/input.py`: Windows mouse adapter and fake controller.
+- `src/airpilot/safety.py`: safe/armed mouse-output gate.
 - `src/airpilot/app.py`: desktop runtime loop and preview UI.
 - `tests/`: synthetic landmark and fake-input tests.
 - `config/defaults.json`: default config example.
@@ -31,6 +32,7 @@ Android must remain documentation-only until explicitly requested.
 ```powershell
 uv sync --extra dev
 uv run --extra dev airpilot --list-cameras
+uv run --extra dev airpilot --camera 0 --diagnose-seconds 5
 uv run --extra dev airpilot --camera 0 --no-mouse
 uv run --extra dev airpilot --camera 0
 uv run --extra dev ruff format --check .
@@ -50,6 +52,7 @@ powershell -ExecutionPolicy Bypass -File scripts/package_windows.ps1
 - Do not store, upload, or log camera frames by default.
 - Do not emit mouse clicks on startup, tracking loss, calibration, or a single
   noisy frame.
+- Real mouse output starts disarmed unless `--armed` is passed explicitly.
 - Verify subagent work before trusting it.
 
 ## Completed
@@ -62,15 +65,19 @@ powershell -ExecutionPolicy Bypass -File scripts/package_windows.ps1
   dead-zone behavior.
 - Config persistence with schema versioning.
 - Tests for gestures, mapping, tracking loss/recovery, config, and fake input.
+- Safe/armed gate, richer status overlay, headless diagnostics, camera backend
+  fallback, and transient read-failure retry.
 - CI workflow for formatting, linting, typing, and tests.
 - Android feasibility document.
 - PyInstaller one-dir package builds and packaged CLI camera listing detects
   `Camera 0` on the development machine.
+- Headless webcam diagnostics open Camera 0 through DirectShow and process
+  aggregate tracker stats without moving the pointer or saving frames.
 
 ## Known Issues
 
-- Manual live tracking and real pointer validation are still required on
-  physical hardware.
+- Manual hand acquisition and real pointer gesture validation are still required
+  with a hand physically presented to the laptop webcam.
 - Packaged executable is unsigned.
 - Camera unplug/replug recovery exits gracefully but does not reconnect yet.
 - Multi-monitor DPI behavior has not been manually validated.
@@ -83,6 +90,8 @@ powershell -ExecutionPolicy Bypass -File scripts/package_windows.ps1
 - Format, lint, mypy, and tests pass.
 - PyInstaller package builds and packaged executable starts.
 - `airpilot --list-cameras` works on Windows.
+- `airpilot --camera 0 --diagnose-seconds 5` starts camera/tracker without
+  moving the mouse.
 - `airpilot --camera 0 --no-mouse` shows tracking without mouse movement.
 - Real mouse mode supports move, left/right click, drag/drop, scroll,
   pause/resume, and failsafe stop.
@@ -90,12 +99,13 @@ powershell -ExecutionPolicy Bypass -File scripts/package_windows.ps1
 
 ## Next Task
 
-Run the manual webcam validation checklist on a Windows machine with a camera,
-then tune defaults from observed behavior.
+Run the short interactive validation checklist with a hand in front of the
+laptop webcam, then tune gesture defaults from observed behavior.
 
 ## Decisions Not To Silently Reverse
 
-- Use Python 3.11, `uv`, OpenCV, MediaPipe, and PyAutoGUI for Phase 1.
+- Use Python 3.11, `uv`, OpenCV, MediaPipe `<0.10.30`, and PyAutoGUI for Phase
+  1 until the tracker migrates to MediaPipe Tasks with a packaged model asset.
 - Keep Android as a future AccessibilityService-based path, not hidden input
   injection.
 - Keep mouse injection behind `MouseController` so tests use fakes.

@@ -9,7 +9,9 @@
 - Config persistence.
 - Basic docs and CI.
 
-Status: implemented; awaiting manual live tracking validation and CI result.
+Status: implemented; terminal webcam diagnostics and packaged smoke tests
+passed; awaiting manual hand gesture validation and CI result for
+hardware-tuning changes.
 
 ## Milestone 2: Windows Hardening
 

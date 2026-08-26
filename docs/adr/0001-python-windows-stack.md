@@ -18,7 +18,8 @@ practical package bundler for Python desktop apps on Windows.
 Use Python 3.11 with:
 
 - OpenCV for webcam capture and preview.
-- MediaPipe for hand tracking.
+- MediaPipe `solutions.hands` for hand tracking, pinned below `0.10.30` until
+  the app migrates to the Tasks API and packaged `.task` model assets.
 - PyAutoGUI for Windows mouse control and corner failsafe.
 - `uv` for dependency locking and command execution.
 - Ruff, mypy, and pytest for quality gates.
@@ -30,6 +31,8 @@ Use Python 3.11 with:
 - Packaging includes large binary CV dependencies.
 - Lower-level Windows `SendInput` can replace PyAutoGUI later behind the same
   `MouseController` interface if precision or policy requires it.
+- The current official MediaPipe Hand Landmarker documentation recommends the
+  Tasks API and a local model asset; migration is tracked as future work.
 
 ## Sources
 
