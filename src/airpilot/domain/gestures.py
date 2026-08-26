@@ -10,6 +10,7 @@ from airpilot.domain.types import GestureEvents, HandLandmarks, Landmark, Tracki
 WRIST = 0
 THUMB_TIP = 4
 INDEX_TIP = 8
+MIDDLE_MCP = 9
 MIDDLE_TIP = 12
 RING_TIP = 16
 PINKY_TIP = 20
@@ -46,12 +47,14 @@ class GestureEngine:
         self._last_seen_ms = frame.timestamp_ms
         self._tracking_lost_reported = False
 
-        pause_changed = self._update_pause(hand, frame.timestamp_ms)
-        if self.paused:
+        pause_changed, pause_active, drag_end = self._update_pause(hand, frame.timestamp_ms)
+        if self.paused or pause_active:
             return GestureEvents(
+                drag_end=drag_end,
                 paused_changed=pause_changed,
                 paused=self.paused,
-                status="paused",
+                active_gesture="paused" if self.paused else "pause_hold",
+                status="paused" if self.paused else "pause_pending",
             )
 
         left_distance = _distance(hand, THUMB_TIP, INDEX_TIP)
@@ -76,13 +79,21 @@ class GestureEngine:
             self.config.scroll_pinch_threshold,
             self.config.scroll_pinch_release_threshold,
         )
+        left_now, right_now, scroll_now, conflict = self._resolve_conflicts(
+            left_now,
+            right_now,
+            scroll_now,
+        )
 
         events = GestureEvents(
             move=None if scroll_now else self.cursor_mapper.map(hand.landmarks[INDEX_TIP]),
             paused_changed=pause_changed,
             paused=self.paused,
-            status="tracking",
+            active_gesture="conflict" if conflict else "tracking",
+            status="gesture_conflict" if conflict else "tracking",
         )
+        if conflict:
+            return events
 
         events = self._process_left(events, frame.timestamp_ms, left_now)
         events = self._process_right(events, frame.timestamp_ms, right_now)
@@ -93,7 +104,7 @@ class GestureEngine:
         last_seen = self._last_seen_ms
         if last_seen is None:
             self.cursor_mapper.reset()
-            return GestureEvents(paused=self.paused, status="searching")
+            return GestureEvents(paused=self.paused, active_gesture="none", status="searching")
         if self._drag_active:
             self._drag_active = False
             self._left = _PinchState()
@@ -101,25 +112,37 @@ class GestureEngine:
                 drag_end=True,
                 paused=self.paused,
                 tracking_lost=True,
+                active_gesture="tracking_lost",
                 status="tracking_lost_drag_released",
             )
-        self._left = _PinchState()
-        self._right = _PinchState()
-        self._scroll = _PinchState()
-        self._pause = _PinchState()
-        self._scroll_anchor_y = None
+        if timestamp_ms - last_seen < self.config.tracking_loss_grace_ms:
+            return GestureEvents(paused=self.paused, active_gesture="none", status="searching")
         if (
             timestamp_ms - last_seen >= self.config.tracking_loss_grace_ms
             and not self._tracking_lost_reported
         ):
+            self._reset_gesture_state()
             self._tracking_lost_reported = True
             self.cursor_mapper.reset()
             return GestureEvents(
                 paused=self.paused,
                 tracking_lost=True,
+                active_gesture="tracking_lost",
                 status="tracking_lost",
             )
-        return GestureEvents(paused=self.paused, status="searching")
+        return GestureEvents(paused=self.paused, active_gesture="none", status="searching")
+
+    def toggle_pause(self) -> GestureEvents:
+        self.paused = not self.paused
+        drag_end = self._drag_active
+        self._reset_gesture_state()
+        return GestureEvents(
+            drag_end=drag_end,
+            paused_changed=True,
+            paused=self.paused,
+            active_gesture="paused" if self.paused else "none",
+            status="paused" if self.paused else "tracking",
+        )
 
     def _process_left(
         self,
@@ -129,15 +152,24 @@ class GestureEngine:
     ) -> GestureEvents:
         if active_now and not self._left.active:
             self._left = _PinchState(active=True, started_ms=timestamp_ms)
-            return events
+            return replace(events, active_gesture="left_pinch")
 
         if active_now and self._left.active:
             started = self._left.started_ms if self._left.started_ms is not None else timestamp_ms
             if not self._drag_active and timestamp_ms - started >= self.config.drag_hold_ms:
                 self._drag_active = True
                 self._left.consumed = True
-                return replace(events, drag_start=True, status="dragging")
-            return replace(events, status="dragging" if self._drag_active else events.status)
+                return replace(
+                    events,
+                    drag_start=True,
+                    active_gesture="dragging",
+                    status="dragging",
+                )
+            return replace(
+                events,
+                active_gesture="dragging" if self._drag_active else "left_pinch",
+                status="dragging" if self._drag_active else events.status,
+            )
 
         if not active_now and self._left.active:
             started = self._left.started_ms if self._left.started_ms is not None else timestamp_ms
@@ -153,7 +185,12 @@ class GestureEngine:
                 and timestamp_ms - self._last_left_click_ms >= self.config.click_cooldown_ms
             ):
                 self._last_left_click_ms = timestamp_ms
-                return replace(events, left_click=True, status="left_click")
+                return replace(
+                    events,
+                    left_click=True,
+                    active_gesture="left_click",
+                    status="left_click",
+                )
 
         return events
 
@@ -165,7 +202,7 @@ class GestureEngine:
     ) -> GestureEvents:
         if active_now and not self._right.active:
             self._right = _PinchState(active=True, started_ms=timestamp_ms)
-            return events
+            return replace(events, active_gesture="right_pinch")
 
         if not active_now and self._right.active:
             started = self._right.started_ms if self._right.started_ms is not None else timestamp_ms
@@ -176,7 +213,12 @@ class GestureEngine:
                 and timestamp_ms - self._last_right_click_ms >= self.config.click_cooldown_ms
             ):
                 self._last_right_click_ms = timestamp_ms
-                return replace(events, right_click=True, status="right_click")
+                return replace(
+                    events,
+                    right_click=True,
+                    active_gesture="right_click",
+                    status="right_click",
+                )
 
         return events
 
@@ -189,13 +231,23 @@ class GestureEngine:
         if active_now and not self._scroll.active:
             self._scroll = _PinchState(active=True)
             self._scroll_anchor_y = ring_tip.y
-            return replace(events, move=None, status="scrolling")
+            return replace(
+                events,
+                move=None,
+                active_gesture="scrolling",
+                status="scrolling",
+            )
 
         if active_now and self._scroll.active:
             anchor = self._scroll_anchor_y
             if anchor is None:
                 self._scroll_anchor_y = ring_tip.y
-                return replace(events, move=None, status="scrolling")
+                return replace(
+                    events,
+                    move=None,
+                    active_gesture="scrolling",
+                    status="scrolling",
+                )
             delta = ring_tip.y - anchor
             steps = int(delta / self.config.scroll_activation_y_delta)
             if steps:
@@ -204,9 +256,15 @@ class GestureEngine:
                     events,
                     move=None,
                     scroll=-steps * self.config.scroll_units_per_step,
+                    active_gesture="scrolling",
                     status="scrolling",
                 )
-            return replace(events, move=None, status="scrolling")
+            return replace(
+                events,
+                move=None,
+                active_gesture="scrolling",
+                status="scrolling",
+            )
 
         if not active_now and self._scroll.active:
             self._scroll = _PinchState()
@@ -214,7 +272,7 @@ class GestureEngine:
 
         return events
 
-    def _update_pause(self, hand: HandLandmarks, timestamp_ms: int) -> bool:
+    def _update_pause(self, hand: HandLandmarks, timestamp_ms: int) -> tuple[bool, bool, bool]:
         pause_distance = _distance(hand, THUMB_TIP, PINKY_TIP)
         pause_now = _hysteresis(
             self._pause.active,
@@ -225,24 +283,48 @@ class GestureEngine:
 
         if pause_now and not self._pause.active:
             self._pause = _PinchState(active=True, started_ms=timestamp_ms)
-            return False
+            return False, True, False
 
         if pause_now and self._pause.active and not self._pause.consumed:
             started = self._pause.started_ms if self._pause.started_ms is not None else timestamp_ms
             if timestamp_ms - started >= self.config.pause_hold_ms:
-                self.paused = not self.paused
-                self._pause.consumed = True
-                self._left = _PinchState()
-                self._right = _PinchState()
-                self._scroll = _PinchState()
-                self._drag_active = False
-                self._scroll_anchor_y = None
-                return True
+                events = self.toggle_pause()
+                self._pause = _PinchState(active=True, started_ms=started, consumed=True)
+                return True, True, events.drag_end
 
         if not pause_now and self._pause.active:
             self._pause = _PinchState()
 
-        return False
+        return False, pause_now, False
+
+    def _resolve_conflicts(
+        self,
+        left_now: bool,
+        right_now: bool,
+        scroll_now: bool,
+    ) -> tuple[bool, bool, bool, bool]:
+        active_count = sum((left_now, right_now, scroll_now))
+        if active_count <= 1:
+            return left_now, right_now, scroll_now, False
+        if self._left.active and left_now:
+            return True, False, False, False
+        if self._right.active and right_now:
+            return False, True, False, False
+        if self._scroll.active and scroll_now:
+            return False, False, True, False
+        self._left = _PinchState()
+        self._right = _PinchState()
+        self._scroll = _PinchState()
+        self._scroll_anchor_y = None
+        return False, False, False, True
+
+    def _reset_gesture_state(self) -> None:
+        self._left = _PinchState()
+        self._right = _PinchState()
+        self._scroll = _PinchState()
+        self._pause = _PinchState()
+        self._drag_active = False
+        self._scroll_anchor_y = None
 
 
 def _distance(hand: HandLandmarks, a: int, b: int) -> float:

@@ -14,6 +14,8 @@ Implemented:
 - MediaPipe hand tracking.
 - Platform-independent gesture state machine with debounce, hysteresis,
   cooldowns, drag lifecycle, scrolling, pause/resume, and tracking-loss safety.
+- Safe-by-default arming gate so real mouse control does not start until the
+  user presses `a` or passes `--armed`.
 - Smooth cursor mapping with calibration bounds, sensitivity, smoothing, and
   dead zone.
 - Windows mouse adapter through PyAutoGUI, isolated behind a testable interface.
@@ -51,16 +53,27 @@ Run with real mouse control:
 uv run --extra dev airpilot --camera 0
 ```
 
+Real mouse mode starts in safe mode. Press `a` in the preview window to arm or
+disarm pointer control. Use `--armed` only when you intentionally want immediate
+control.
+
 Run safely without moving the mouse:
 
 ```powershell
 uv run --extra dev airpilot --camera 0 --no-mouse
 ```
 
+Run headless webcam/tracker diagnostics without moving the mouse:
+
+```powershell
+uv run --extra dev airpilot --camera 0 --diagnose-seconds 5
+```
+
 Controls:
 
 - `q` or `Esc`: stop AirPilot while the preview window is focused.
 - `p`: pause/resume while the preview window is focused.
+- `a`: arm/disarm real mouse output while the preview window is focused.
 - Move the real pointer to a screen corner to trigger PyAutoGUI's failsafe.
 
 Default gestures:

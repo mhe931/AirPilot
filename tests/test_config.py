@@ -1,3 +1,5 @@
+import json
+from dataclasses import asdict
 from pathlib import Path
 
 import pytest
@@ -32,3 +34,10 @@ def test_rejects_unknown_config_schema(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="Unsupported"):
         load_config(path)
+
+
+def test_default_config_file_matches_dataclass_defaults() -> None:
+    defaults_path = Path(__file__).resolve().parents[1] / "config" / "defaults.json"
+    raw = json.loads(defaults_path.read_text(encoding="utf-8"))
+
+    assert raw == asdict(AppConfig())

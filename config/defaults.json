@@ -1,16 +1,16 @@
 {
   "schema_version": 1,
   "cursor": {
-    "camera_max_x": 0.88,
-    "camera_max_y": 0.86,
-    "camera_min_x": 0.12,
-    "camera_min_y": 0.1,
-    "dead_zone_px": 4,
+    "camera_max_x": 0.92,
+    "camera_max_y": 0.88,
+    "camera_min_x": 0.08,
+    "camera_min_y": 0.08,
+    "dead_zone_px": 5,
     "mirror_x": true,
     "screen_height": 1080,
     "screen_width": 1920,
     "sensitivity": 1.0,
-    "smoothing_alpha": 0.35
+    "smoothing_alpha": 0.28
   },
   "gestures": {
     "click_cooldown_ms": 350,
@@ -30,11 +30,13 @@
     "tracking_loss_grace_ms": 250
   },
   "runtime": {
+    "camera_read_failures_before_error": 10,
     "camera_index": 0,
     "draw_landmarks": true,
     "emergency_corner_failsafe": true,
     "enable_real_mouse": true,
     "max_camera_index": 4,
+    "start_armed": false,
     "tracker_detection_confidence": 0.55,
     "tracker_tracking_confidence": 0.55
   }
