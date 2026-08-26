@@ -17,6 +17,7 @@ Android must remain documentation-only until explicitly requested.
   before editing.
 - Main is not branch-protected as of 2026-08-26.
 - PR #3 merged camera reconnect hardening into `main`.
+- PR #4 merged the MediaPipe preview-drawing compatibility fix into `main`.
 
 ## Architecture Paths
 
@@ -73,6 +74,9 @@ powershell -ExecutionPolicy Bypass -File scripts/package_windows.ps1
 - Preview landmark drawing is compatible with the pinned MediaPipe package and
   disables only landmark rendering if preview drawing fails, rather than
   crashing the core loop.
+- The preview now defaults to an actual-orientation image, real mouse control
+  starts with a prominent disarmed banner, and legacy configs migrate to the
+  new camera-orientation behavior.
 - CI workflow for formatting, linting, typing, and tests.
 - Android feasibility document.
 - PyInstaller one-dir package builds and packaged CLI camera listing detects
@@ -108,8 +112,8 @@ powershell -ExecutionPolicy Bypass -File scripts/package_windows.ps1
 ## Next Task
 
 Run the short interactive validation checklist with a hand in front of the
-laptop webcam now that the MediaPipe preview-drawing crash is fixed, then tune
-gesture defaults from observed behavior.
+laptop webcam now that preview drawing, default orientation, and arming UX are
+fixed, then tune gesture defaults from observed behavior.
 
 ## Decisions Not To Silently Reverse
 

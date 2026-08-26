@@ -13,6 +13,7 @@ def test_armed_flag_sets_start_armed(monkeypatch: object) -> None:
         return 0
 
     monkeypatch.setattr(app, "load_config", lambda _path=None: AppConfig())
+    monkeypatch.setattr(app, "read_config_schema_version", lambda _path: None)
     monkeypatch.setattr(app, "save_config", lambda _config, _path=None: None)
     monkeypatch.setattr(app, "default_config_path", lambda: Path("."))
     monkeypatch.setattr(app, "run", fake_run)
@@ -30,6 +31,7 @@ def test_no_mouse_overrides_armed_gate(monkeypatch: object) -> None:
         return 0
 
     monkeypatch.setattr(app, "load_config", lambda _path=None: AppConfig())
+    monkeypatch.setattr(app, "read_config_schema_version", lambda _path: None)
     monkeypatch.setattr(app, "save_config", lambda _config, _path=None: None)
     monkeypatch.setattr(app, "default_config_path", lambda: Path("."))
     monkeypatch.setattr(app, "run", fake_run)
@@ -53,6 +55,7 @@ def test_diagnostics_disables_real_mouse(monkeypatch: object) -> None:
         return 0
 
     monkeypatch.setattr(app, "load_config", lambda _path=None: AppConfig())
+    monkeypatch.setattr(app, "read_config_schema_version", lambda _path: None)
     monkeypatch.setattr(app, "save_config", lambda _config, _path=None: None)
     monkeypatch.setattr(app, "default_config_path", lambda: Path("."))
     monkeypatch.setattr(app, "run", fake_run)
@@ -63,3 +66,22 @@ def test_diagnostics_disables_real_mouse(monkeypatch: object) -> None:
         "diagnose_seconds": 1.0,
         "show_preview": False,
     }
+
+
+def test_main_persists_migrated_config(monkeypatch: object) -> None:
+    saved: dict[str, AppConfig | None] = {"config": None}
+
+    def fake_run(config: AppConfig) -> int:
+        return 0
+
+    def fake_save_config(config: AppConfig, _path: Path | None = None) -> None:
+        saved["config"] = config
+
+    monkeypatch.setattr(app, "load_config", lambda _path=None: AppConfig())
+    monkeypatch.setattr(app, "read_config_schema_version", lambda _path: 1)
+    monkeypatch.setattr(app, "save_config", fake_save_config)
+    monkeypatch.setattr(app, "default_config_path", lambda: Path("."))
+    monkeypatch.setattr(app, "run", fake_run)
+
+    assert app.main([]) == 0
+    assert saved["config"] is not None

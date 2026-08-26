@@ -6,6 +6,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+CURRENT_SCHEMA_VERSION = 2
+
 
 @dataclass(slots=True)
 class GestureConfig:
@@ -37,7 +39,7 @@ class CursorConfig:
     sensitivity: float = 1.0
     smoothing_alpha: float = 0.28
     dead_zone_px: int = 5
-    mirror_x: bool = True
+    mirror_x: bool = False
 
 
 @dataclass(slots=True)
@@ -47,6 +49,7 @@ class RuntimeConfig:
     camera_read_failures_before_error: int = 10
     camera_reconnect_attempts: int = 6
     camera_reconnect_delay_ms: int = 500
+    flip_camera_x: bool = True
     draw_landmarks: bool = True
     enable_real_mouse: bool = True
     start_armed: bool = False
@@ -57,7 +60,7 @@ class RuntimeConfig:
 
 @dataclass(slots=True)
 class AppConfig:
-    schema_version: int = 1
+    schema_version: int = CURRENT_SCHEMA_VERSION
     gestures: GestureConfig = field(default_factory=GestureConfig)
     cursor: CursorConfig = field(default_factory=CursorConfig)
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
@@ -78,6 +81,18 @@ def load_config(path: Path | None = None) -> AppConfig:
     return _config_from_dict(raw)
 
 
+def read_config_schema_version(path: Path) -> int | None:
+    if not path.exists():
+        return None
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ValueError("AirPilot config root must be an object")
+    version = raw.get("schema_version", 1)
+    if not isinstance(version, int):
+        raise ValueError("AirPilot config schema_version must be an integer")
+    return version
+
+
 def save_config(config: AppConfig, path: Path | None = None) -> Path:
     config_path = path or default_config_path()
     config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -90,7 +105,9 @@ def save_config(config: AppConfig, path: Path | None = None) -> Path:
 
 def _config_from_dict(raw: dict[str, Any]) -> AppConfig:
     version = raw.get("schema_version", 1)
-    if version != 1:
+    if version == 1:
+        return _migrate_v1_config(raw)
+    if version != CURRENT_SCHEMA_VERSION:
         raise ValueError(f"Unsupported AirPilot config schema_version {version!r}")
     return AppConfig(
         schema_version=version,
@@ -105,3 +122,16 @@ def _section(raw: dict[str, Any], name: str) -> dict[str, Any]:
     if not isinstance(section, dict):
         raise ValueError(f"AirPilot config section {name!r} must be an object")
     return section
+
+
+def _migrate_v1_config(raw: dict[str, Any]) -> AppConfig:
+    cursor_section = dict(_section(raw, "cursor"))
+    legacy_mirror_x = cursor_section.get("mirror_x", True)
+    if isinstance(legacy_mirror_x, bool):
+        cursor_section["mirror_x"] = not legacy_mirror_x
+    return AppConfig(
+        schema_version=CURRENT_SCHEMA_VERSION,
+        gestures=GestureConfig(**_section(raw, "gestures")),
+        cursor=CursorConfig(**cursor_section),
+        runtime=RuntimeConfig(**_section(raw, "runtime")),
+    )

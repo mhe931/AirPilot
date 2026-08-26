@@ -65,3 +65,64 @@ def test_run_disables_preview_landmarks_after_draw_failure(
     assert not config.runtime.draw_landmarks
     captured = capsys.readouterr()
     assert "Preview landmarks disabled" in captured.err
+
+
+def test_prepare_camera_image_flips_horizontally_by_default() -> None:
+    image = np.array([[[1, 0, 0]], [[2, 0, 0]], [[3, 0, 0]]], dtype=np.uint8).transpose((1, 0, 2))
+    config = AppConfig()
+
+    prepared = app._prepare_camera_image(image, config)
+
+    assert prepared[0, 0, 0] == 3
+    assert prepared[0, 2, 0] == 1
+
+
+def test_handle_keypress_accepts_uppercase_arm_toggle() -> None:
+    class StubEngine:
+        def toggle_pause(self) -> TrackingFrame:
+            raise AssertionError("pause should not be triggered")
+
+    class StubMouse:
+        def drag_end(self) -> None:
+            return None
+
+    config = AppConfig()
+    safety = app.MouseSafetyGate(armed=False)
+
+    should_exit, notice = app._handle_keypress(
+        ord("A"),
+        config=config,
+        engine=StubEngine(),
+        safety=safety,
+        mouse=StubMouse(),
+    )
+
+    assert not should_exit
+    assert safety.armed is True
+    assert notice == "Gesture control enabled"
+
+
+def test_handle_keypress_reports_preview_only_arming_failure() -> None:
+    class StubEngine:
+        def toggle_pause(self) -> TrackingFrame:
+            raise AssertionError("pause should not be triggered")
+
+    class StubMouse:
+        def drag_end(self) -> None:
+            return None
+
+    config = AppConfig()
+    config.runtime.enable_real_mouse = False
+    safety = app.MouseSafetyGate(armed=False)
+
+    should_exit, notice = app._handle_keypress(
+        ord("a"),
+        config=config,
+        engine=StubEngine(),
+        safety=safety,
+        mouse=StubMouse(),
+    )
+
+    assert not should_exit
+    assert safety.armed is False
+    assert notice == "Arming unavailable in preview-only mode"

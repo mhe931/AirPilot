@@ -18,11 +18,11 @@ def test_status_lines_show_tracking_gesture_and_safe_mouse() -> None:
         fps=29.6,
     )
 
-    assert "tracking" in lines[0]
-    assert "hand" in lines[0]
-    assert "hand score 0.82" in lines[0]
-    assert "left_pinch" in lines[1]
-    assert "mouse safe" in lines[1]
+    assert lines[0] == "AIRPILOT: DISARMED"
+    assert "Press A to enable gesture control" in lines[1]
+    assert "tracking hand" in lines[2]
+    assert "left_pinch" in lines[2]
+    assert "A = Arm/Disarm" in lines[3]
 
 
 def test_status_lines_show_mouse_off_for_no_mouse_mode() -> None:
@@ -38,8 +38,10 @@ def test_status_lines_show_mouse_off_for_no_mouse_mode() -> None:
         fps=0.0,
     )
 
-    assert "searching" in lines[0]
-    assert "mouse off" in lines[1]
+    assert lines[0] == "AIRPILOT: PREVIEW ONLY"
+    assert "Mouse output disabled" in lines[1]
+    assert "searching" in lines[2]
+    assert "Q = Quit" in lines[3]
 
 
 def test_status_lines_show_paused_armed_and_active_gestures() -> None:
@@ -54,9 +56,9 @@ def test_status_lines_show_paused_armed_and_active_gestures() -> None:
         fps=31.0,
     )
 
-    assert "paused" in lines[0]
-    assert "dragging" in lines[1]
-    assert "mouse armed" in lines[1]
+    assert lines[0] == "AIRPILOT: PAUSED"
+    assert "Press P to resume" in lines[1]
+    assert "dragging" in lines[2]
 
 
 def test_status_lines_surface_preview_drawing_warning() -> None:
@@ -71,7 +73,23 @@ def test_status_lines_surface_preview_drawing_warning() -> None:
         drawing_error="landmarks disabled",
     )
 
-    assert lines[2] == "preview landmarks disabled"
+    assert lines[4] == "preview landmarks disabled"
+
+
+def test_status_lines_show_armed_notice() -> None:
+    frame = TrackingFrame(timestamp_ms=0, width=640, height=480, hand=None)
+
+    lines = status_lines(
+        frame,
+        GestureEvents(active_gesture="none", status="tracking"),
+        AppConfig(),
+        armed=True,
+        fps=24.0,
+        operator_notice="Gesture control enabled",
+    )
+
+    assert lines[0] == "AIRPILOT: ARMED"
+    assert lines[1] == "Gesture control enabled"
 
 
 def test_tracking_stats_summary_is_aggregate_only() -> None:

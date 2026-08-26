@@ -27,8 +27,8 @@ uv run --extra dev airpilot --camera 0 --no-mouse
 Pass:
 
 - Preview window opens.
-- Overlay shows searching/tracking, active gesture, hand score, fps, mouse off,
-  and the control region rectangle.
+- Overlay shows a prominent preview-only/disarmed/armed state banner, tracking
+  details, controls, and the control region rectangle.
 - Hand landmarks draw over the hand within 3 seconds when a hand is presented.
 - If preview landmark rendering fails, the app should stay running and show
   `preview landmarks disabled` rather than crashing.
@@ -44,8 +44,10 @@ uv run --extra dev airpilot --camera 0
 
 Pass:
 
-- App starts with `mouse safe`; moving your hand does not move the pointer.
-- Press `a`; overlay changes to `mouse armed`.
+- App starts with `AIRPILOT: DISARMED`; moving your hand does not move the
+  pointer.
+- Preview orientation matches the actual camera view, not selfie mirroring.
+- Press `a`; overlay changes prominently to `AIRPILOT: ARMED`.
 - Cursor reaches all four quadrants without leaving the control region.
 - With five thumb-index pinch/releases, exactly five left clicks occur.
 - Holding thumb-index starts drag; pressing `p` or removing the hand releases it.
@@ -55,7 +57,7 @@ Pass:
 - Ambiguous multi-pinch shapes show conflict/cancel behavior, not combined
   clicks.
 - Moving the pointer to a screen corner stops through PyAutoGUI failsafe.
-- Press `a` again; overlay returns to `mouse safe`.
+- Press `a` again; overlay returns prominently to `AIRPILOT: DISARMED`.
 
 ## Edge Cases
 

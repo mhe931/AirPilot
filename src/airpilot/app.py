@@ -7,17 +7,24 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from time import perf_counter
+from typing import Protocol
 
 import cv2
 import pyautogui
 from cv2.typing import MatLike
 
 from airpilot.camera import OpenCVCamera, list_cameras
-from airpilot.config import AppConfig, default_config_path, load_config, save_config
+from airpilot.config import (
+    AppConfig,
+    default_config_path,
+    load_config,
+    read_config_schema_version,
+    save_config,
+)
 from airpilot.domain.cursor import CursorMapper
 from airpilot.domain.gestures import GestureEngine
 from airpilot.domain.types import GestureEvents, TrackingFrame
-from airpilot.input import PyAutoGuiMouseController
+from airpilot.input import MouseController, PyAutoGuiMouseController
 from airpilot.safety import MouseSafetyGate
 from airpilot.tracking import HandDrawingError, MediaPipeHandTracker
 
@@ -78,6 +85,10 @@ class TrackingStats:
         }
 
 
+class PauseController(Protocol):
+    def toggle_pause(self) -> GestureEvents: ...
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="AirPilot Windows gesture mouse")
     parser.add_argument("--camera", type=int, default=None, help="camera index")
@@ -108,8 +119,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     config_path = None if args.config is None else Path(args.config)
     persisted_path = default_config_path() if config_path is None else config_path
+    stored_schema_version = read_config_schema_version(persisted_path)
     config = load_config(config_path)
-    if not persisted_path.exists():
+    if stored_schema_version != config.schema_version:
         save_config(config, config_path)
 
     if args.camera is not None:
@@ -145,6 +157,7 @@ def run(
     tracker: MediaPipeHandTracker | None = None
     stats = TrackingStats()
     drawing_error: str | None = None
+    operator_notice: str | None = None
 
     try:
         camera = OpenCVCamera(
@@ -166,13 +179,13 @@ def run(
             armed=config.runtime.enable_real_mouse and config.runtime.start_armed,
         )
         for camera_frame in camera.frames():
-            frame = tracker.track(camera_frame.image, camera_frame.timestamp_ms)
+            image = _prepare_camera_image(camera_frame.image, config)
+            frame = tracker.track(image, camera_frame.timestamp_ms)
             events = engine.process(frame)
             if config.runtime.enable_real_mouse:
                 safety.apply(mouse, events)
             stats.observe(frame, events)
 
-            image = camera_frame.image
             if show_preview:
                 if config.runtime.draw_landmarks:
                     try:
@@ -184,6 +197,7 @@ def run(
                             f"AirPilot warning: {exc}. Preview landmarks disabled.",
                             file=sys.stderr,
                         )
+                        operator_notice = "Preview landmarks disabled"
                 _draw_status(
                     image,
                     frame,
@@ -192,20 +206,18 @@ def run(
                     armed=safety.armed,
                     fps=stats.fps,
                     drawing_error=drawing_error,
+                    operator_notice=operator_notice,
                 )
                 cv2.imshow("AirPilot", image)
-                key = cv2.waitKey(1) & 0xFF
-                if key in (27, ord("q")):
+                should_exit, operator_notice = _handle_keypress(
+                    cv2.waitKey(1),
+                    config=config,
+                    engine=engine,
+                    safety=safety,
+                    mouse=mouse,
+                )
+                if should_exit:
                     break
-                if key == ord("p"):
-                    pause_events = engine.toggle_pause()
-                    if config.runtime.enable_real_mouse:
-                        safety.apply(mouse, pause_events)
-                if key == ord("a") and config.runtime.enable_real_mouse:
-                    if safety.armed:
-                        safety.disarm(mouse)
-                    else:
-                        safety.toggle()
             if diagnose_seconds is not None and stats.elapsed_seconds >= diagnose_seconds:
                 summary = stats.summary(camera_backend=camera.backend_name)
                 summary["camera_reconnects"] = camera.reconnect_count
@@ -236,16 +248,26 @@ def status_lines(
     armed: bool,
     fps: float,
     drawing_error: str | None = None,
+    operator_notice: str | None = None,
 ) -> list[str]:
     hand = frame.hand
     tracking = "hand" if hand is not None else "searching"
     hand_score = f"{hand.confidence:.2f}" if hand is not None else "--"
-    mouse_state = "off"
-    if config.runtime.enable_real_mouse:
-        mouse_state = "armed" if armed else "safe"
+    headline, guidance = _headline_text(
+        config=config,
+        armed=armed,
+        paused=events.paused,
+        operator_notice=operator_notice,
+    )
+    controls = _controls_text(config)
     lines = [
-        f"AirPilot {events.status} | {tracking} | hand score {hand_score} | {fps:.1f} fps",
-        f"gesture {events.active_gesture} | mouse {mouse_state} | p pause | a arm | q stop",
+        headline,
+        guidance,
+        (
+            f"tracking {tracking} | gesture {events.active_gesture} | "
+            f"hand score {hand_score} | {fps:.1f} fps"
+        ),
+        controls,
     ]
     if drawing_error is not None:
         lines.append(f"preview {drawing_error}")
@@ -261,20 +283,29 @@ def _draw_status(
     armed: bool,
     fps: float,
     drawing_error: str | None = None,
+    operator_notice: str | None = None,
 ) -> None:
-    color = (0, 0, 255) if events.paused else (0, 160, 255) if not armed else (0, 180, 0)
     _draw_calibration_region(image, config)
-    for index, text in enumerate(
-        status_lines(frame, events, config, armed=armed, fps=fps, drawing_error=drawing_error)
-    ):
-        y = 30 + index * 28
+    lines = status_lines(
+        frame,
+        events,
+        config,
+        armed=armed,
+        fps=fps,
+        drawing_error=drawing_error,
+        operator_notice=operator_notice,
+    )
+    _draw_banner(image, lines[0], lines[1], config=config, armed=armed, paused=events.paused)
+    detail_color = (255, 255, 255)
+    for index, text in enumerate(lines[2:]):
+        y = 108 + index * 26
         cv2.putText(
             image,
             text,
             (12, y),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.68,
-            color,
+            0.62,
+            detail_color,
             2,
             cv2.LINE_AA,
         )
@@ -297,6 +328,120 @@ def _draw_calibration_region(image: MatLike, config: AppConfig) -> None:
         0.55,
         (255, 200, 0),
         1,
+        cv2.LINE_AA,
+    )
+
+
+def _prepare_camera_image(image: MatLike, config: AppConfig) -> MatLike:
+    if config.runtime.flip_camera_x:
+        return cv2.flip(image, 1)
+    return image
+
+
+def _normalized_key(key: int) -> str | None:
+    normalized = key & 0xFF
+    if normalized == 27:
+        return "quit"
+    if 32 <= normalized <= 126:
+        return chr(normalized).lower()
+    return None
+
+
+def _handle_keypress(
+    key: int,
+    *,
+    config: AppConfig,
+    engine: PauseController,
+    safety: MouseSafetyGate,
+    mouse: MouseController,
+) -> tuple[bool, str | None]:
+    command = _normalized_key(key)
+    if command == "q":
+        return True, "Quit requested"
+    if command == "p":
+        pause_events = engine.toggle_pause()
+        if config.runtime.enable_real_mouse:
+            safety.apply(mouse, pause_events)
+        return False, "Paused" if pause_events.paused else "Resumed"
+    if command == "a":
+        if not config.runtime.enable_real_mouse:
+            return False, "Arming unavailable in preview-only mode"
+        if safety.armed:
+            safety.disarm(mouse)
+            return False, "Gesture control disabled"
+        safety.toggle()
+        return False, "Gesture control enabled"
+    if command == "quit":
+        return True, "Quit requested"
+    return False, None
+
+
+def _headline_text(
+    *,
+    config: AppConfig,
+    armed: bool,
+    paused: bool,
+    operator_notice: str | None,
+) -> tuple[str, str]:
+    if not config.runtime.enable_real_mouse:
+        headline = "AIRPILOT: PREVIEW ONLY"
+        guidance = "Mouse output disabled | Click preview window to focus controls"
+    elif paused:
+        headline = "AIRPILOT: PAUSED"
+        guidance = "Press P to resume gesture control"
+    elif armed:
+        headline = "AIRPILOT: ARMED"
+        guidance = "Gesture control enabled"
+    else:
+        headline = "AIRPILOT: DISARMED"
+        guidance = "Press A to enable gesture control"
+    if operator_notice is not None:
+        guidance = operator_notice
+    return headline, guidance
+
+
+def _controls_text(config: AppConfig) -> str:
+    if not config.runtime.enable_real_mouse:
+        return "Controls: P = Pause/Resume | Q = Quit | Click preview for keys"
+    return "Controls: A = Arm/Disarm | P = Pause/Resume | Q = Quit | Click preview for keys"
+
+
+def _draw_banner(
+    image: MatLike,
+    headline: str,
+    guidance: str,
+    *,
+    config: AppConfig,
+    armed: bool,
+    paused: bool,
+) -> None:
+    if not config.runtime.enable_real_mouse:
+        color = (120, 80, 0)
+    elif paused:
+        color = (0, 0, 180)
+    elif armed:
+        color = (0, 140, 0)
+    else:
+        color = (0, 80, 180)
+    cv2.rectangle(image, (0, 0), (int(image.shape[1]), 88), color, thickness=-1)
+    cv2.putText(
+        image,
+        headline,
+        (12, 34),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.95,
+        (255, 255, 255),
+        2,
+        cv2.LINE_AA,
+    )
+    cv2.putText(
+        image,
+        guidance,
+        (12, 68),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.7,
+        (255, 255, 255),
+        2,
         cv2.LINE_AA,
     )
 
