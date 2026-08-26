@@ -53,5 +53,5 @@ warn_redundant_casts = true
 disallow_any_generics = true
 
 [[tool.mypy.overrides]]
-module = ["cv2", "mediapipe", "pyautogui"]
+module = ["cv2", "mediapipe", "mediapipe.*", "pyautogui"]
 ignore_missing_imports = true

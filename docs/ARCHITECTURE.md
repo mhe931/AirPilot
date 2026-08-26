@@ -56,6 +56,8 @@ Default cursor behavior:
 - Sustained read failures trigger bounded reopen attempts on the same camera
   index before AirPilot exits.
 - Missing or invalid landmarks do not emit clicks.
+- Preview landmark rendering failures disable only the landmark overlay and keep
+  the gesture loop running.
 - Tracking loss reports status and resets cursor smoothing.
 - PyAutoGUI corner failsafe is enabled by default.
 
