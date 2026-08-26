@@ -19,7 +19,7 @@ from airpilot.domain.gestures import GestureEngine
 from airpilot.domain.types import GestureEvents, TrackingFrame
 from airpilot.input import PyAutoGuiMouseController
 from airpilot.safety import MouseSafetyGate
-from airpilot.tracking import MediaPipeHandTracker
+from airpilot.tracking import HandDrawingError, MediaPipeHandTracker
 
 
 @dataclass(slots=True)
@@ -144,6 +144,7 @@ def run(
     camera: OpenCVCamera | None = None
     tracker: MediaPipeHandTracker | None = None
     stats = TrackingStats()
+    drawing_error: str | None = None
 
     try:
         camera = OpenCVCamera(
@@ -174,7 +175,15 @@ def run(
             image = camera_frame.image
             if show_preview:
                 if config.runtime.draw_landmarks:
-                    tracker.draw(image, frame.hand)
+                    try:
+                        tracker.draw(image, frame.hand)
+                    except HandDrawingError as exc:
+                        config.runtime.draw_landmarks = False
+                        drawing_error = "landmarks disabled"
+                        print(
+                            f"AirPilot warning: {exc}. Preview landmarks disabled.",
+                            file=sys.stderr,
+                        )
                 _draw_status(
                     image,
                     frame,
@@ -182,6 +191,7 @@ def run(
                     config,
                     armed=safety.armed,
                     fps=stats.fps,
+                    drawing_error=drawing_error,
                 )
                 cv2.imshow("AirPilot", image)
                 key = cv2.waitKey(1) & 0xFF
@@ -225,6 +235,7 @@ def status_lines(
     *,
     armed: bool,
     fps: float,
+    drawing_error: str | None = None,
 ) -> list[str]:
     hand = frame.hand
     tracking = "hand" if hand is not None else "searching"
@@ -232,10 +243,13 @@ def status_lines(
     mouse_state = "off"
     if config.runtime.enable_real_mouse:
         mouse_state = "armed" if armed else "safe"
-    return [
+    lines = [
         f"AirPilot {events.status} | {tracking} | hand score {hand_score} | {fps:.1f} fps",
         f"gesture {events.active_gesture} | mouse {mouse_state} | p pause | a arm | q stop",
     ]
+    if drawing_error is not None:
+        lines.append(f"preview {drawing_error}")
+    return lines
 
 
 def _draw_status(
@@ -246,10 +260,13 @@ def _draw_status(
     *,
     armed: bool,
     fps: float,
+    drawing_error: str | None = None,
 ) -> None:
     color = (0, 0, 255) if events.paused else (0, 160, 255) if not armed else (0, 180, 0)
     _draw_calibration_region(image, config)
-    for index, text in enumerate(status_lines(frame, events, config, armed=armed, fps=fps)):
+    for index, text in enumerate(
+        status_lines(frame, events, config, armed=armed, fps=fps, drawing_error=drawing_error)
+    ):
         y = 30 + index * 28
         cv2.putText(
             image,

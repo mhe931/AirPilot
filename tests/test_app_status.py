@@ -59,6 +59,21 @@ def test_status_lines_show_paused_armed_and_active_gestures() -> None:
     assert "mouse armed" in lines[1]
 
 
+def test_status_lines_surface_preview_drawing_warning() -> None:
+    frame = TrackingFrame(timestamp_ms=0, width=640, height=480, hand=None)
+
+    lines = status_lines(
+        frame,
+        GestureEvents(active_gesture="none", status="tracking"),
+        AppConfig(),
+        armed=False,
+        fps=24.0,
+        drawing_error="landmarks disabled",
+    )
+
+    assert lines[2] == "preview landmarks disabled"
+
+
 def test_tracking_stats_summary_is_aggregate_only() -> None:
     stats = TrackingStats()
     hand = HandLandmarks(tuple(Landmark(0.5, 0.5) for _ in range(21)), confidence=0.9)

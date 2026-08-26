@@ -22,6 +22,8 @@ Implemented:
 - Windows mouse adapter through PyAutoGUI, isolated behind a testable interface.
 - Config persistence under `%APPDATA%\AirPilot\config.json`.
 - Synthetic landmark tests that do not require a webcam or desktop automation.
+- Preview landmark drawing is compatible with the pinned MediaPipe package and
+  falls back to status-only preview if landmark rendering fails.
 
 See [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md) for the live handoff.
 

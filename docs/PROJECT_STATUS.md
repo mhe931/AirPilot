@@ -12,8 +12,9 @@ hardware-tuning work should use short-lived focused feature branches off `main`.
 - Main branch was unprotected when inspected on 2026-08-26.
 - PR #1 and PR #2 were merged when inspected on 2026-08-26.
 - No open issues were present when inspected.
-- Draft PR #3 is open for camera reconnect hardening.
-- The latest CI runs on `main` and draft PR #3 completed successfully.
+- PR #3 merged camera reconnect hardening into `main`.
+- The latest CI runs on `main` and PR #3 completed successfully before the
+  follow-up live-preview compatibility fix.
 
 ## Completed
 
@@ -29,6 +30,9 @@ hardware-tuning work should use short-lived focused feature branches off `main`.
 - Headless diagnostics mode for camera/tracker startup without pointer movement.
 - Camera backend fallback, transient read-failure retry, and bounded same-index
   camera reopen attempts after repeated read failures.
+- MediaPipe preview landmark drawing compatibility fix for the pinned package.
+- Preview landmark rendering now disables only the landmark overlay if drawing
+  fails, instead of crashing the runtime loop.
 - Overlay/status lines show tracking state, active gesture, hand score, fps,
   mouse state, and calibration region.
 - Config persistence under `%APPDATA%\AirPilot\config.json`.
@@ -71,22 +75,28 @@ Last local automated validation:
 - `uv run --extra dev ruff format --check .`
 - `uv run --extra dev ruff check .`
 - `uv run --extra dev mypy src`
-- `uv run --extra dev python -m pytest`: 36 passed.
+- `uv run --extra dev python -m pytest`: 39 passed.
+- `uv run python -c "... MediaPipeHandTracker().draw(...)"` completed with
+  `draw-ok` against the installed MediaPipe package.
+- `uv run --extra dev airpilot --camera 0` stayed running in safe mode until
+  manually stopped after startup verification.
 - `powershell -ExecutionPolicy Bypass -File scripts\package_windows.ps1`
 - `dist\AirPilot\AirPilot.exe --help`
 - `dist\AirPilot\AirPilot.exe --list-cameras` detected
   `0: Camera 0 (DirectShow)`.
 - `dist\AirPilot\AirPilot.exe --config %TEMP%\airpilot-packaged-validation-config.json
   --camera 0 --diagnose-seconds 3` opened Camera 0 through DirectShow and
-  processed 22 frames at 640x480, about 7.2 fps, with no hand observed and
+  processed 64 frames at 640x480, about 21.2 fps, with no hand observed and
   `camera_reconnects: 0`.
+- `dist\AirPilot\AirPilot.exe --camera 0` stayed running in safe mode until
+  manually stopped after startup verification.
 - Secret scan found only documentation/policy references to secrets/passwords,
   not credentials.
 - `uv run --extra dev airpilot --list-cameras` detected
   `0: Camera 0 (DirectShow)`.
 - `uv run --extra dev airpilot --config %TEMP%\airpilot-validation-config.json
   --camera 0 --diagnose-seconds 5` opened Camera 0 through DirectShow and
-  processed 42 frames at 640x480, about 8.2 fps, with no hand observed and
+  processed 117 frames at 640x480, about 23.4 fps, with a hand observed and
   `camera_reconnects: 0`.
 
 Manual live hand acquisition and real pointer gestures still must be run with a
@@ -97,14 +107,18 @@ hand physically presented to the webcam.
 - The package is unsigned.
 - Camera unplug/replug recovery now retries reopening the same camera index, but
   manual validation is still required to confirm recovery on this hardware.
+- MediaPipe emits a `NORM_RECT without IMAGE_DIMENSIONS` warning during live
+  hand tracking; it did not reproduce as a crash and is not yet proven to cause
+  incorrect gesture behavior in this milestone.
 - Multi-monitor DPI and UAC/elevated-window behavior need manual validation.
 - Current emergency controls are preview-window `q`/`Esc`/`p` plus PyAutoGUI
   corner failsafe; no global hotkey or tray app yet.
 
 ## Next
 
-Run the short interactive checklist in `docs/MANUAL_VALIDATION.md` with a hand
-in front of the laptop webcam and tune gesture defaults from observations.
+Run the compact live validation with a hand in front of the laptop webcam and
+tune gesture defaults from observations now that preview drawing no longer
+crashes.
 
 ## Decisions Not To Reverse Silently
 

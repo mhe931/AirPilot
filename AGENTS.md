@@ -16,8 +16,7 @@ Android must remain documentation-only until explicitly requested.
 - Create a focused feature branch for each milestone; verify the current branch
   before editing.
 - Main is not branch-protected as of 2026-08-26.
-- Draft PR #3 tracks camera reconnect hardening and has passing CI; live gesture
-  validation still remains pending human observation.
+- PR #3 merged camera reconnect hardening into `main`.
 
 ## Architecture Paths
 
@@ -71,6 +70,9 @@ powershell -ExecutionPolicy Bypass -File scripts/package_windows.ps1
 - Safe/armed gate, richer status overlay, headless diagnostics, camera backend
   fallback, transient read-failure retry, and bounded camera reopen attempts
   after sustained read failures.
+- Preview landmark drawing is compatible with the pinned MediaPipe package and
+  disables only landmark rendering if preview drawing fails, rather than
+  crashing the core loop.
 - CI workflow for formatting, linting, typing, and tests.
 - Android feasibility document.
 - PyInstaller one-dir package builds and packaged CLI camera listing detects
@@ -106,7 +108,8 @@ powershell -ExecutionPolicy Bypass -File scripts/package_windows.ps1
 ## Next Task
 
 Run the short interactive validation checklist with a hand in front of the
-laptop webcam, then tune gesture defaults from observed behavior.
+laptop webcam now that the MediaPipe preview-drawing crash is fixed, then tune
+gesture defaults from observed behavior.
 
 ## Decisions Not To Silently Reverse
 

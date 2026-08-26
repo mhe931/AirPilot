@@ -6,6 +6,7 @@ from typing import Protocol
 import cv2
 import mediapipe as mp
 from cv2.typing import MatLike
+from mediapipe.framework.formats import landmark_pb2
 
 from airpilot.domain.types import Handedness, HandLandmarks, Landmark, TrackingFrame
 
@@ -14,6 +15,10 @@ class HandTracker(Protocol):
     def track(self, image: MatLike, timestamp_ms: int) -> TrackingFrame: ...
 
     def close(self) -> None: ...
+
+
+class HandDrawingError(RuntimeError):
+    """Raised when preview landmark rendering fails."""
 
 
 class MediaPipeHandTracker:
@@ -60,22 +65,25 @@ class MediaPipeHandTracker:
     def draw(self, image: MatLike, hand: HandLandmarks | None) -> MatLike:
         if hand is None:
             return image
-        mp_landmarks = mp.framework.formats.landmark_pb2.NormalizedLandmarkList(
-            landmark=[
-                mp.framework.formats.landmark_pb2.NormalizedLandmark(
-                    x=point.x,
-                    y=point.y,
-                    z=point.z,
-                    visibility=point.visibility,
-                )
-                for point in hand.landmarks
-            ]
-        )
-        mp.solutions.drawing_utils.draw_landmarks(
-            image,
-            mp_landmarks,
-            mp.solutions.hands.HAND_CONNECTIONS,
-        )
+        try:
+            mp_landmarks = landmark_pb2.NormalizedLandmarkList(
+                landmark=[
+                    landmark_pb2.NormalizedLandmark(
+                        x=point.x,
+                        y=point.y,
+                        z=point.z,
+                        visibility=point.visibility,
+                    )
+                    for point in hand.landmarks
+                ]
+            )
+            mp.solutions.drawing_utils.draw_landmarks(
+                image,
+                mp_landmarks,
+                mp.solutions.hands.HAND_CONNECTIONS,
+            )
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise HandDrawingError("MediaPipe hand landmark drawing failed") from exc
         return image
 
     def close(self) -> None:

@@ -30,6 +30,8 @@ Pass:
 - Overlay shows searching/tracking, active gesture, hand score, fps, mouse off,
   and the control region rectangle.
 - Hand landmarks draw over the hand within 3 seconds when a hand is presented.
+- If preview landmark rendering fails, the app should stay running and show
+  `preview landmarks disabled` rather than crashing.
 - No frames are saved to the repo, config directory, or temp directory.
 - `q` and `Esc` stop the app.
 - `p` toggles pause/resume.
