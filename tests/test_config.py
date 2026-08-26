@@ -16,7 +16,7 @@ def test_config_round_trip(tmp_path: Path) -> None:
     save_config(config, path)
     loaded = load_config(path)
 
-    assert loaded.schema_version == 1
+    assert loaded.schema_version == 2
     assert loaded.cursor.sensitivity == 1.4
     assert loaded.runtime.camera_index == 2
 
@@ -34,6 +34,48 @@ def test_rejects_unknown_config_schema(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="Unsupported"):
         load_config(path)
+
+
+def test_v1_config_migrates_to_non_mirrored_cursor_defaults(tmp_path: Path) -> None:
+    path = tmp_path / "config.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "cursor": {"mirror_x": True, "sensitivity": 1.2},
+                "runtime": {"camera_index": 1},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_config(path)
+
+    assert loaded.schema_version == 2
+    assert loaded.cursor.mirror_x is False
+    assert loaded.cursor.sensitivity == 1.2
+    assert loaded.runtime.camera_index == 1
+
+
+def test_v1_config_preserves_equivalent_horizontal_behavior_when_unmirrored(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "config.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "cursor": {"mirror_x": False},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_config(path)
+
+    assert loaded.schema_version == 2
+    assert loaded.runtime.flip_camera_x is True
+    assert loaded.cursor.mirror_x is True
 
 
 def test_default_config_file_matches_dataclass_defaults() -> None:

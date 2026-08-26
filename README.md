@@ -18,6 +18,7 @@ Implemented:
   user presses `a` or passes `--armed`.
 - Smooth cursor mapping with calibration bounds, sensitivity, smoothing, and
   dead zone.
+- Default actual-orientation preview with matching pointer mapping.
 - Bounded camera reopen attempts after sustained frame-read failures.
 - Windows mouse adapter through PyAutoGUI, isolated behind a testable interface.
 - Config persistence under `%APPDATA%\AirPilot\config.json`.
@@ -57,8 +58,9 @@ uv run --extra dev airpilot --camera 0
 ```
 
 Real mouse mode starts in safe mode. Press `a` in the preview window to arm or
-disarm pointer control. Use `--armed` only when you intentionally want immediate
-control.
+disarm pointer control. The preview shows a prominent `AIRPILOT: DISARMED` or
+`AIRPILOT: ARMED` banner so the current state is obvious. Use `--armed` only
+when you intentionally want immediate control.
 
 Run safely without moving the mouse:
 
@@ -81,6 +83,9 @@ Controls:
 - `p`: pause/resume while the preview window is focused.
 - `a`: arm/disarm real mouse output while the preview window is focused.
 - Move the real pointer to a screen corner to trigger PyAutoGUI's failsafe.
+
+If your webcam feed is already non-mirrored at the driver level, you can change
+`runtime.flip_camera_x` in `%APPDATA%\AirPilot\config.json`.
 
 Default gestures:
 
