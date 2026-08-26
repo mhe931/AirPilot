@@ -18,8 +18,8 @@ def test_status_lines_show_tracking_gesture_and_safe_mouse() -> None:
         fps=29.6,
     )
 
-    assert lines[0] == "AIRPILOT: DISARMED"
-    assert "Press A to enable gesture control" in lines[1]
+    assert lines[0] == "AIRPILOT - DISARMED"
+    assert "A = Enable Mouse" in lines[1]
     assert "tracking hand" in lines[2]
     assert "left_pinch" in lines[2]
     assert "A = Arm/Disarm" in lines[3]
@@ -36,9 +36,10 @@ def test_status_lines_show_mouse_off_for_no_mouse_mode() -> None:
         config,
         armed=False,
         fps=0.0,
+        mouse_output_locked=True,
     )
 
-    assert lines[0] == "AIRPILOT: PREVIEW ONLY"
+    assert lines[0] == "AIRPILOT - PREVIEW ONLY"
     assert "Mouse output disabled" in lines[1]
     assert "searching" in lines[2]
     assert "Q = Quit" in lines[3]
@@ -56,7 +57,7 @@ def test_status_lines_show_paused_armed_and_active_gestures() -> None:
         fps=31.0,
     )
 
-    assert lines[0] == "AIRPILOT: PAUSED"
+    assert lines[0] == "AIRPILOT - PAUSED"
     assert "Press P to resume" in lines[1]
     assert "dragging" in lines[2]
 
@@ -85,11 +86,23 @@ def test_status_lines_show_armed_notice() -> None:
         AppConfig(),
         armed=True,
         fps=24.0,
-        operator_notice="Gesture control enabled",
+        operator_notice="Mouse control enabled",
     )
 
-    assert lines[0] == "AIRPILOT: ARMED"
-    assert lines[1] == "Gesture control enabled"
+    assert lines[0] == "AIRPILOT - ACTIVE"
+    assert lines[1] == "Mouse control enabled"
+
+
+def test_overlay_layout_truncates_to_frame_width() -> None:
+    longest = "Controls: A = Arm/Disarm | P = Pause/Resume | Q = Quit"
+    layout = __import__("airpilot.app", fromlist=["_layout_overlay"])._layout_overlay(
+        ["AIRPILOT - DISARMED", longest],
+        160,
+    )
+
+    assert all(line.x >= 0 for line in layout)
+    assert all(len(line.text) <= len(longest) for line in layout)
+    assert layout[1].text.endswith("...")
 
 
 def test_tracking_stats_summary_is_aggregate_only() -> None:

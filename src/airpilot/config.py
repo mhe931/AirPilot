@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 3
 
 
 @dataclass(slots=True)
@@ -49,7 +49,7 @@ class RuntimeConfig:
     camera_read_failures_before_error: int = 10
     camera_reconnect_attempts: int = 6
     camera_reconnect_delay_ms: int = 500
-    flip_camera_x: bool = True
+    flip_camera_x: bool = False
     draw_landmarks: bool = True
     enable_real_mouse: bool = True
     start_armed: bool = False
@@ -107,6 +107,8 @@ def _config_from_dict(raw: dict[str, Any]) -> AppConfig:
     version = raw.get("schema_version", 1)
     if version == 1:
         return _migrate_v1_config(raw)
+    if version == 2:
+        return _migrate_v2_config(raw)
     if version != CURRENT_SCHEMA_VERSION:
         raise ValueError(f"Unsupported AirPilot config schema_version {version!r}")
     return AppConfig(
@@ -126,12 +128,22 @@ def _section(raw: dict[str, Any], name: str) -> dict[str, Any]:
 
 def _migrate_v1_config(raw: dict[str, Any]) -> AppConfig:
     cursor_section = dict(_section(raw, "cursor"))
-    legacy_mirror_x = cursor_section.get("mirror_x", True)
-    if isinstance(legacy_mirror_x, bool):
-        cursor_section["mirror_x"] = not legacy_mirror_x
+    if cursor_section.get("mirror_x") is True or "mirror_x" not in cursor_section:
+        cursor_section["mirror_x"] = False
     return AppConfig(
         schema_version=CURRENT_SCHEMA_VERSION,
         gestures=GestureConfig(**_section(raw, "gestures")),
         cursor=CursorConfig(**cursor_section),
         runtime=RuntimeConfig(**_section(raw, "runtime")),
+    )
+
+
+def _migrate_v2_config(raw: dict[str, Any]) -> AppConfig:
+    runtime_section = dict(_section(raw, "runtime"))
+    runtime_section["flip_camera_x"] = False
+    return AppConfig(
+        schema_version=CURRENT_SCHEMA_VERSION,
+        gestures=GestureConfig(**_section(raw, "gestures")),
+        cursor=CursorConfig(**_section(raw, "cursor")),
+        runtime=RuntimeConfig(**runtime_section),
     )

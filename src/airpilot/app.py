@@ -21,6 +21,7 @@ from airpilot.config import (
     read_config_schema_version,
     save_config,
 )
+from airpilot.cursor_feedback import CursorFeedbackController, create_cursor_feedback
 from airpilot.domain.cursor import CursorMapper
 from airpilot.domain.gestures import GestureEngine
 from airpilot.domain.types import GestureEvents, TrackingFrame
@@ -142,9 +143,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             config,
             diagnose_seconds=args.diagnose_seconds,
             show_preview=args.show_preview,
+            mouse_output_locked=True,
         )
 
-    return run(config)
+    return run(config, mouse_output_locked=args.no_mouse)
 
 
 def run(
@@ -152,9 +154,11 @@ def run(
     diagnose_seconds: float | None = None,
     *,
     show_preview: bool = True,
+    mouse_output_locked: bool = False,
 ) -> int:
     camera: OpenCVCamera | None = None
     tracker: MediaPipeHandTracker | None = None
+    cursor_feedback: CursorFeedbackController | None = None
     stats = TrackingStats()
     drawing_error: str | None = None
     operator_notice: str | None = None
@@ -169,21 +173,34 @@ def run(
         tracker = MediaPipeHandTracker(
             min_detection_confidence=config.runtime.tracker_detection_confidence,
             min_tracking_confidence=config.runtime.tracker_tracking_confidence,
+            input_is_mirrored=config.runtime.flip_camera_x,
         )
         config.cursor.screen_width, config.cursor.screen_height = pyautogui.size()
         engine = GestureEngine(config.gestures, CursorMapper(config.cursor))
         mouse = PyAutoGuiMouseController(
             emergency_corner_failsafe=config.runtime.emergency_corner_failsafe,
         )
+        cursor_feedback = create_cursor_feedback()
         safety = MouseSafetyGate(
-            armed=config.runtime.enable_real_mouse and config.runtime.start_armed,
+            armed=(
+                config.runtime.enable_real_mouse
+                and not mouse_output_locked
+                and config.runtime.start_armed
+            ),
         )
         for camera_frame in camera.frames():
             image = _prepare_camera_image(camera_frame.image, config)
             frame = tracker.track(image, camera_frame.timestamp_ms)
             events = engine.process(frame)
-            if config.runtime.enable_real_mouse:
+            mouse_output_enabled = config.runtime.enable_real_mouse and not mouse_output_locked
+            if mouse_output_enabled:
                 safety.apply(mouse, events)
+            cursor_feedback.set_control_active(
+                mouse_output_enabled
+                and safety.armed
+                and not events.paused
+                and frame.hand is not None
+            )
             stats.observe(frame, events)
 
             if show_preview:
@@ -207,6 +224,7 @@ def run(
                     fps=stats.fps,
                     drawing_error=drawing_error,
                     operator_notice=operator_notice,
+                    mouse_output_locked=mouse_output_locked,
                 )
                 cv2.imshow("AirPilot", image)
                 should_exit, operator_notice = _handle_keypress(
@@ -215,6 +233,7 @@ def run(
                     engine=engine,
                     safety=safety,
                     mouse=mouse,
+                    mouse_output_locked=mouse_output_locked,
                 )
                 if should_exit:
                     break
@@ -236,6 +255,8 @@ def run(
             camera.close()
         if tracker is not None:
             tracker.close()
+        if cursor_feedback is not None:
+            cursor_feedback.restore()
         cv2.destroyAllWindows()
     return 0
 
@@ -249,6 +270,7 @@ def status_lines(
     fps: float,
     drawing_error: str | None = None,
     operator_notice: str | None = None,
+    mouse_output_locked: bool = False,
 ) -> list[str]:
     hand = frame.hand
     tracking = "hand" if hand is not None else "searching"
@@ -258,14 +280,16 @@ def status_lines(
         armed=armed,
         paused=events.paused,
         operator_notice=operator_notice,
+        mouse_output_locked=mouse_output_locked,
     )
-    controls = _controls_text(config)
+    controls = _controls_text(config, mouse_output_locked=mouse_output_locked)
+    hand_count = len(frame.hands)
     lines = [
         headline,
         guidance,
         (
             f"tracking {tracking} | gesture {events.active_gesture} | "
-            f"hand score {hand_score} | {fps:.1f} fps"
+            f"hands {hand_count} | hand score {hand_score} | {fps:.1f} fps"
         ),
         controls,
     ]
@@ -284,6 +308,7 @@ def _draw_status(
     fps: float,
     drawing_error: str | None = None,
     operator_notice: str | None = None,
+    mouse_output_locked: bool = False,
 ) -> None:
     _draw_calibration_region(image, config)
     lines = status_lines(
@@ -294,17 +319,25 @@ def _draw_status(
         fps=fps,
         drawing_error=drawing_error,
         operator_notice=operator_notice,
+        mouse_output_locked=mouse_output_locked,
     )
-    _draw_banner(image, lines[0], lines[1], config=config, armed=armed, paused=events.paused)
+    layout = _layout_overlay(lines, int(image.shape[1]))
+    _draw_banner(
+        image,
+        layout,
+        config=config,
+        armed=armed,
+        paused=events.paused,
+        mouse_output_locked=mouse_output_locked,
+    )
     detail_color = (255, 255, 255)
-    for index, text in enumerate(lines[2:]):
-        y = 108 + index * 26
+    for line in layout[2:]:
         cv2.putText(
             image,
-            text,
-            (12, y),
+            line.text,
+            (line.x, line.y),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.62,
+            line.scale,
             detail_color,
             2,
             cv2.LINE_AA,
@@ -354,23 +387,26 @@ def _handle_keypress(
     engine: PauseController,
     safety: MouseSafetyGate,
     mouse: MouseController,
+    mouse_output_locked: bool = False,
 ) -> tuple[bool, str | None]:
     command = _normalized_key(key)
     if command == "q":
         return True, "Quit requested"
     if command == "p":
         pause_events = engine.toggle_pause()
-        if config.runtime.enable_real_mouse:
+        if config.runtime.enable_real_mouse and not mouse_output_locked:
             safety.apply(mouse, pause_events)
         return False, "Paused" if pause_events.paused else "Resumed"
     if command == "a":
+        if mouse_output_locked:
+            return False, "Mouse output disabled for diagnostics/--no-mouse"
         if not config.runtime.enable_real_mouse:
-            return False, "Arming unavailable in preview-only mode"
+            config.runtime.enable_real_mouse = True
         if safety.armed:
             safety.disarm(mouse)
-            return False, "Gesture control disabled"
+            return False, "Mouse control disabled"
         safety.toggle()
-        return False, "Gesture control enabled"
+        return False, "Mouse control enabled"
     if command == "quit":
         return True, "Quit requested"
     return False, None
@@ -382,40 +418,83 @@ def _headline_text(
     armed: bool,
     paused: bool,
     operator_notice: str | None,
+    mouse_output_locked: bool = False,
 ) -> tuple[str, str]:
-    if not config.runtime.enable_real_mouse:
-        headline = "AIRPILOT: PREVIEW ONLY"
-        guidance = "Mouse output disabled | Click preview window to focus controls"
+    if mouse_output_locked:
+        headline = "AIRPILOT - PREVIEW ONLY"
+        guidance = "Mouse output disabled for diagnostics/--no-mouse"
     elif paused:
-        headline = "AIRPILOT: PAUSED"
+        headline = "AIRPILOT - PAUSED"
         guidance = "Press P to resume gesture control"
     elif armed:
-        headline = "AIRPILOT: ARMED"
-        guidance = "Gesture control enabled"
+        headline = "AIRPILOT - ACTIVE"
+        guidance = "Mouse control enabled"
     else:
-        headline = "AIRPILOT: DISARMED"
-        guidance = "Press A to enable gesture control"
+        headline = "AIRPILOT - DISARMED"
+        guidance = "A = Enable Mouse | Q = Quit"
     if operator_notice is not None:
         guidance = operator_notice
     return headline, guidance
 
 
-def _controls_text(config: AppConfig) -> str:
-    if not config.runtime.enable_real_mouse:
+def _controls_text(config: AppConfig, *, mouse_output_locked: bool = False) -> str:
+    if mouse_output_locked:
         return "Controls: P = Pause/Resume | Q = Quit | Click preview for keys"
     return "Controls: A = Arm/Disarm | P = Pause/Resume | Q = Quit | Click preview for keys"
 
 
+@dataclass(frozen=True, slots=True)
+class OverlayLine:
+    text: str
+    x: int
+    y: int
+    scale: float
+
+
+def _layout_overlay(lines: Sequence[str], width: int) -> list[OverlayLine]:
+    padded_width = max(width - 24, 40)
+    layout: list[OverlayLine] = []
+    y = 30
+    for index, text in enumerate(lines):
+        scale = 0.72 if index == 0 else 0.52
+        line_height = 26 if index == 0 else 22
+        layout.append(
+            OverlayLine(
+                text=_fit_text(text, padded_width, scale=scale),
+                x=12,
+                y=y,
+                scale=scale,
+            )
+        )
+        y += line_height
+    return layout
+
+
+def _fit_text(text: str, max_width: int, *, scale: float) -> str:
+    if _text_width(text, scale) <= max_width:
+        return text
+    suffix = "..."
+    fitted = text
+    while fitted and _text_width(fitted + suffix, scale) > max_width:
+        fitted = fitted[:-1]
+    return (fitted.rstrip() + suffix) if fitted else suffix
+
+
+def _text_width(text: str, scale: float) -> int:
+    size, _baseline = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, scale, 2)
+    return int(size[0])
+
+
 def _draw_banner(
     image: MatLike,
-    headline: str,
-    guidance: str,
+    layout: Sequence[OverlayLine],
     *,
     config: AppConfig,
     armed: bool,
     paused: bool,
+    mouse_output_locked: bool = False,
 ) -> None:
-    if not config.runtime.enable_real_mouse:
+    if mouse_output_locked:
         color = (120, 80, 0)
     elif paused:
         color = (0, 0, 180)
@@ -423,27 +502,19 @@ def _draw_banner(
         color = (0, 140, 0)
     else:
         color = (0, 80, 180)
-    cv2.rectangle(image, (0, 0), (int(image.shape[1]), 88), color, thickness=-1)
-    cv2.putText(
-        image,
-        headline,
-        (12, 34),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.95,
-        (255, 255, 255),
-        2,
-        cv2.LINE_AA,
-    )
-    cv2.putText(
-        image,
-        guidance,
-        (12, 68),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.7,
-        (255, 255, 255),
-        2,
-        cv2.LINE_AA,
-    )
+    banner_height = min(max(layout[-1].y + 12 if layout else 64, 78), int(image.shape[0]))
+    cv2.rectangle(image, (0, 0), (int(image.shape[1]), banner_height), color, thickness=-1)
+    for line in layout[:2]:
+        cv2.putText(
+            image,
+            line.text,
+            (line.x, line.y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            line.scale,
+            (255, 255, 255),
+            2,
+            cv2.LINE_AA,
+        )
 
 
 if __name__ == "__main__":

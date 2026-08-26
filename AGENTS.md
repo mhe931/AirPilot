@@ -77,6 +77,13 @@ powershell -ExecutionPolicy Bypass -File scripts/package_windows.ps1
 - The preview now defaults to an actual-orientation image, real mouse control
   starts with a prominent disarmed banner, and legacy configs migrate to the
   new camera-orientation behavior.
+- Tracking carries up to two hands, with a deterministic right-hand-preferred
+  control hand and a secondary hand reserved for future gestures.
+- Mouse activation is explicit in the preview: `A` enables/disables mouse output
+  unless the run was intentionally started with `--no-mouse` or diagnostics.
+- Windows cursor feedback is encapsulated behind an adapter and restored during
+  shutdown; it uses transient OS cursor calls rather than permanent system
+  cursor replacement.
 - CI workflow for formatting, linting, typing, and tests.
 - Android feasibility document.
 - PyInstaller one-dir package builds and packaged CLI camera listing detects
@@ -92,6 +99,7 @@ powershell -ExecutionPolicy Bypass -File scripts/package_windows.ps1
 - Packaged executable is unsigned.
 - Camera unplug/replug recovery now retries reopening the same camera index, but
   recovery still depends on Windows presenting the device again on that index.
+- Two-hand tracking and active cursor icon behavior still need manual validation.
 - Multi-monitor DPI behavior has not been manually validated.
 - Global hotkey/tray emergency stop is not implemented; current stop controls
   are preview-window keys and PyAutoGUI corner failsafe.
@@ -112,8 +120,9 @@ powershell -ExecutionPolicy Bypass -File scripts/package_windows.ps1
 ## Next Task
 
 Run the short interactive validation checklist with a hand in front of the
-laptop webcam now that preview drawing, default orientation, and arming UX are
-fixed, then tune gesture defaults from observed behavior.
+laptop webcam now that preview drawing, default orientation, arming UX, cursor
+feedback, and two-hand tracking are wired, then tune gesture defaults from
+observed behavior.
 
 ## Decisions Not To Silently Reverse
 

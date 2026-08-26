@@ -36,6 +36,22 @@ class TrackingFrame:
     width: int
     height: int
     hand: HandLandmarks | None
+    hands: tuple[HandLandmarks, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.hands and self.hand is not None:
+            object.__setattr__(self, "hands", (self.hand,))
+
+    @property
+    def control_hand(self) -> HandLandmarks | None:
+        return self.hand
+
+    @property
+    def secondary_hand(self) -> HandLandmarks | None:
+        for hand in self.hands:
+            if hand is not self.hand:
+                return hand
+        return None
 
 
 @dataclass(frozen=True, slots=True)
