@@ -45,6 +45,8 @@ class RuntimeConfig:
     camera_index: int = 0
     max_camera_index: int = 4
     camera_read_failures_before_error: int = 10
+    camera_reconnect_attempts: int = 6
+    camera_reconnect_delay_ms: int = 500
     draw_landmarks: bool = True
     enable_real_mouse: bool = True
     start_armed: bool = False

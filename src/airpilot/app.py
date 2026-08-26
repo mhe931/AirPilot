@@ -149,6 +149,8 @@ def run(
         camera = OpenCVCamera(
             config.runtime.camera_index,
             read_failures_before_error=config.runtime.camera_read_failures_before_error,
+            reconnect_attempts=config.runtime.camera_reconnect_attempts,
+            reconnect_delay_ms=config.runtime.camera_reconnect_delay_ms,
         )
         tracker = MediaPipeHandTracker(
             min_detection_confidence=config.runtime.tracker_detection_confidence,
@@ -195,7 +197,9 @@ def run(
                     else:
                         safety.toggle()
             if diagnose_seconds is not None and stats.elapsed_seconds >= diagnose_seconds:
-                print(json.dumps(stats.summary(camera_backend=camera.backend_name), sort_keys=True))
+                summary = stats.summary(camera_backend=camera.backend_name)
+                summary["camera_reconnects"] = camera.reconnect_count
+                print(json.dumps(summary, sort_keys=True))
                 break
             if mouse.emergency_stop_requested():
                 break

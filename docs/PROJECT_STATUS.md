@@ -2,15 +2,18 @@
 
 ## Phase
 
-Phase 1 Windows vertical slice is implemented. Hardware-tuning work is on branch
-`feature/windows-hardware-tuning`.
+Phase 1 Windows vertical slice is implemented. Follow-up Windows hardening and
+hardware-tuning work should use short-lived focused feature branches off `main`.
 
 ## Repo State
 
 - Remote: `git@github.com:mhe931/AirPilot.git`
 - Default branch: `main`
 - Main branch was unprotected when inspected on 2026-08-26.
-- No issues, PRs, or workflow runs existed before this milestone.
+- PR #1 and PR #2 were merged when inspected on 2026-08-26.
+- No open issues or open PRs were present when inspected.
+- The latest CI runs on `main` and the most recent milestone PR completed
+  successfully.
 
 ## Completed
 
@@ -24,7 +27,8 @@ Phase 1 Windows vertical slice is implemented. Hardware-tuning work is on branch
 - PyAutoGUI mouse adapter plus fake controller for tests.
 - Safe/armed mouse-output gate; real mouse mode starts safe by default.
 - Headless diagnostics mode for camera/tracker startup without pointer movement.
-- Camera backend fallback and transient read-failure retry.
+- Camera backend fallback, transient read-failure retry, and bounded same-index
+  camera reopen attempts after repeated read failures.
 - Overlay/status lines show tracking state, active gesture, hand score, fps,
   mouse state, and calibration region.
 - Config persistence under `%APPDATA%\AirPilot\config.json`.
@@ -67,21 +71,23 @@ Last local automated validation:
 - `uv run --extra dev ruff format --check .`
 - `uv run --extra dev ruff check .`
 - `uv run --extra dev mypy src`
-- `uv run --extra dev python -m pytest`: 33 passed.
+- `uv run --extra dev python -m pytest`: 36 passed.
 - `powershell -ExecutionPolicy Bypass -File scripts\package_windows.ps1`
 - `dist\AirPilot\AirPilot.exe --help`
 - `dist\AirPilot\AirPilot.exe --list-cameras` detected
   `0: Camera 0 (DirectShow)`.
 - `dist\AirPilot\AirPilot.exe --config %TEMP%\airpilot-packaged-validation-config.json
   --camera 0 --diagnose-seconds 3` opened Camera 0 through DirectShow and
-  processed 14 frames at 640x480, about 4.6 fps, with no hand observed.
+  processed 22 frames at 640x480, about 7.2 fps, with no hand observed and
+  `camera_reconnects: 0`.
 - Secret scan found only documentation/policy references to secrets/passwords,
   not credentials.
 - `uv run --extra dev airpilot --list-cameras` detected
   `0: Camera 0 (DirectShow)`.
 - `uv run --extra dev airpilot --config %TEMP%\airpilot-validation-config.json
   --camera 0 --diagnose-seconds 5` opened Camera 0 through DirectShow and
-  processed 43 frames at 640x480, about 8.5 fps, with no hand observed.
+  processed 42 frames at 640x480, about 8.2 fps, with no hand observed and
+  `camera_reconnects: 0`.
 
 Manual live hand acquisition and real pointer gestures still must be run with a
 hand physically presented to the webcam.
@@ -89,8 +95,8 @@ hand physically presented to the webcam.
 ## Known Issues
 
 - The package is unsigned.
-- Camera unplug/replug recovery retries transient frame-read failures but does
-  not reopen a disconnected camera yet.
+- Camera unplug/replug recovery now retries reopening the same camera index, but
+  manual validation is still required to confirm recovery on this hardware.
 - Multi-monitor DPI and UAC/elevated-window behavior need manual validation.
 - Current emergency controls are preview-window `q`/`Esc`/`p` plus PyAutoGUI
   corner failsafe; no global hotkey or tray app yet.
