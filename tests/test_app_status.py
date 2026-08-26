@@ -80,6 +80,7 @@ def test_tracking_stats_summary_is_aggregate_only() -> None:
     assert summary["hand_frames"] == 1
     assert summary["hand_observed"] is True
     assert summary["tracking_lost_events"] == 1
+    assert "camera_reconnects" not in summary
     assert "image" not in summary
 
 

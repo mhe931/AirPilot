@@ -53,6 +53,8 @@ Default cursor behavior:
 
 - Camera open/read failures produce a clear runtime error and clean shutdown.
 - Transient camera read failures are retried before surfacing an error.
+- Sustained read failures trigger bounded reopen attempts on the same camera
+  index before AirPilot exits.
 - Missing or invalid landmarks do not emit clicks.
 - Tracking loss reports status and resets cursor smoothing.
 - PyAutoGUI corner failsafe is enabled by default.

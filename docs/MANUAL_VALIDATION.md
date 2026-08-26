@@ -14,6 +14,7 @@ Pass:
 - Camera 0 is listed.
 - Diagnostics prints JSON with `frames > 0`, `frame_width > 0`, and
   `frame_height > 0`.
+- Diagnostics includes `camera_reconnects`.
 - If your hand is visible to the camera during the diagnostic, `hand_observed`
   should be `true`.
 
@@ -60,7 +61,9 @@ Verify and record:
 
 - Bad lighting.
 - Occlusion.
-- Camera unplug/replug.
+- Camera unplug/replug. If Windows restores the device on the same index within
+  the retry window, AirPilot should recover without a manual restart; otherwise
+  it should exit with a clear runtime error instead of hanging.
 - Camera already in use by another app.
 - Sleep/wake.
 - Multi-monitor layout.

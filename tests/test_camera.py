@@ -7,12 +7,13 @@ from airpilot import camera
 
 
 class FakeCapture:
-    def __init__(self, reads: Iterable[bool]) -> None:
+    def __init__(self, reads: Iterable[bool], *, opened: bool = True) -> None:
         self.reads = list(reads)
+        self.opened = opened
         self.released = False
 
     def isOpened(self) -> bool:
-        return True
+        return self.opened
 
     def read(self) -> tuple[bool, object]:
         if not self.reads:
@@ -47,4 +48,81 @@ def test_camera_fails_after_consecutive_read_failures(monkeypatch: pytest.Monkey
     sut = camera.OpenCVCamera(read_failures_before_error=2)
 
     with pytest.raises(RuntimeError, match="2 consecutive"):
+        next(sut.frames())
+
+
+def test_camera_reconnects_after_consecutive_read_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captures = [
+        FakeCapture([True, True, True, False, False]),
+        FakeCapture([True, True, True, True]),
+    ]
+
+    def fake_video_capture(*_args: object) -> FakeCapture:
+        return captures.pop(0)
+
+    monkeypatch.setattr(camera.cv2, "VideoCapture", fake_video_capture)
+    monkeypatch.setattr(camera, "_WINDOWS_BACKENDS", ((1, "fake"),))
+
+    sut = camera.OpenCVCamera(
+        read_failures_before_error=2,
+        reconnect_attempts=1,
+        reconnect_delay_ms=0,
+    )
+    frame = next(sut.frames())
+
+    assert frame.width == 3
+    assert frame.height == 2
+    assert sut.reconnect_count == 1
+
+
+def test_camera_raises_when_reconnect_attempts_are_exhausted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captures = [
+        FakeCapture([True, True, True, False, False]),
+        FakeCapture([], opened=False),
+        FakeCapture([], opened=False),
+    ]
+
+    def fake_video_capture(*_args: object) -> FakeCapture:
+        return captures.pop(0)
+
+    monkeypatch.setattr(camera.cv2, "VideoCapture", fake_video_capture)
+    monkeypatch.setattr(camera, "_WINDOWS_BACKENDS", ((1, "fake"),))
+
+    sut = camera.OpenCVCamera(
+        read_failures_before_error=2,
+        reconnect_attempts=1,
+        reconnect_delay_ms=0,
+    )
+
+    with pytest.raises(RuntimeError, match="reconnect attempts were exhausted"):
+        next(sut.frames())
+
+
+def test_camera_raises_when_reopened_capture_stays_unreadable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captures = [
+        FakeCapture([True, True, True, False, False]),
+        FakeCapture([False, False, False, False]),
+        FakeCapture([], opened=False),
+        FakeCapture([], opened=False),
+    ]
+
+    def fake_video_capture(*_args: object) -> FakeCapture:
+        return captures.pop(0)
+
+    monkeypatch.setattr(camera.cv2, "VideoCapture", fake_video_capture)
+    monkeypatch.setattr(camera, "_WINDOWS_BACKENDS", ((1, "fake"),))
+
+    sut = camera.OpenCVCamera(
+        read_failures_before_error=2,
+        reconnect_attempts=2,
+        reconnect_delay_ms=0,
+    )
+
+    with pytest.raises(RuntimeError, match="reconnect attempts were exhausted"):
         next(sut.frames())

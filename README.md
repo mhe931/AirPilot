@@ -18,6 +18,7 @@ Implemented:
   user presses `a` or passes `--armed`.
 - Smooth cursor mapping with calibration bounds, sensitivity, smoothing, and
   dead zone.
+- Bounded camera reopen attempts after sustained frame-read failures.
 - Windows mouse adapter through PyAutoGUI, isolated behind a testable interface.
 - Config persistence under `%APPDATA%\AirPilot\config.json`.
 - Synthetic landmark tests that do not require a webcam or desktop automation.
@@ -69,6 +70,9 @@ Run headless webcam/tracker diagnostics without moving the mouse:
 uv run --extra dev airpilot --camera 0 --diagnose-seconds 5
 ```
 
+Diagnostics JSON includes `camera_reconnects` so unplug/replug recovery can be
+verified without moving the pointer.
+
 Controls:
 
 - `q` or `Esc`: stop AirPilot while the preview window is focused.
@@ -101,4 +105,5 @@ powershell -ExecutionPolicy Bypass -File scripts/package_windows.ps1
 ```
 
 The unsigned executable is written under `dist\AirPilot`. Code signing and
-installer polish are not complete yet.
+installer polish are not complete yet. If the webcam briefly disconnects,
+AirPilot now retries reopening the same camera index before failing.

@@ -31,6 +31,8 @@
   },
   "runtime": {
     "camera_read_failures_before_error": 10,
+    "camera_reconnect_attempts": 6,
+    "camera_reconnect_delay_ms": 500,
     "camera_index": 0,
     "draw_landmarks": true,
     "emergency_corner_failsafe": true,

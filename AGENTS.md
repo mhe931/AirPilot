@@ -13,8 +13,11 @@ Android must remain documentation-only until explicitly requested.
 
 - Remote: `git@github.com:mhe931/AirPilot.git`
 - Default branch: `main`
-- Active feature branch for this milestone: `feature/windows-hardware-tuning`
+- Create a focused feature branch for each milestone; verify the current branch
+  before editing.
 - Main is not branch-protected as of 2026-08-26.
+- Draft PR #3 tracks camera reconnect hardening and has passing CI; live gesture
+  validation still remains pending human observation.
 
 ## Architecture Paths
 
@@ -66,20 +69,23 @@ powershell -ExecutionPolicy Bypass -File scripts/package_windows.ps1
 - Config persistence with schema versioning.
 - Tests for gestures, mapping, tracking loss/recovery, config, and fake input.
 - Safe/armed gate, richer status overlay, headless diagnostics, camera backend
-  fallback, and transient read-failure retry.
+  fallback, transient read-failure retry, and bounded camera reopen attempts
+  after sustained read failures.
 - CI workflow for formatting, linting, typing, and tests.
 - Android feasibility document.
 - PyInstaller one-dir package builds and packaged CLI camera listing detects
   `Camera 0` on the development machine.
 - Headless webcam diagnostics open Camera 0 through DirectShow and process
-  aggregate tracker stats without moving the pointer or saving frames.
+  aggregate tracker stats without moving the pointer or saving frames, including
+  camera reconnect counts.
 
 ## Known Issues
 
 - Manual hand acquisition and real pointer gesture validation are still required
   with a hand physically presented to the laptop webcam.
 - Packaged executable is unsigned.
-- Camera unplug/replug recovery exits gracefully but does not reconnect yet.
+- Camera unplug/replug recovery now retries reopening the same camera index, but
+  recovery still depends on Windows presenting the device again on that index.
 - Multi-monitor DPI behavior has not been manually validated.
 - Global hotkey/tray emergency stop is not implemented; current stop controls
   are preview-window keys and PyAutoGUI corner failsafe.
