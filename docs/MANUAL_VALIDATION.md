@@ -27,7 +27,7 @@ uv run --extra dev airpilot --camera 0 --no-mouse
 Pass:
 
 - Preview window opens.
-- Overlay shows a prominent preview-only/disarmed/armed state banner, tracking
+- Overlay shows a prominent preview-only/disarmed/active/paused state banner, tracking
   details, controls, and the control region rectangle.
 - Hand landmarks draw over the hand within 3 seconds when a hand is presented.
 - If preview landmark rendering fails, the app should stay running and show
@@ -44,11 +44,14 @@ uv run --extra dev airpilot --camera 0
 
 Pass:
 
-- App starts with `AIRPILOT: DISARMED`; moving your hand does not move the
+- App starts with `AIRPILOT - DISARMED`; moving your hand does not move the
   pointer.
 - Preview orientation matches the actual camera view, not selfie mirroring.
-- Press `a`; overlay changes prominently to `AIRPILOT: ARMED`.
+- Press `a`; overlay changes prominently to `AIRPILOT - ACTIVE`.
 - Cursor reaches all four quadrants without leaving the control region.
+- While active and tracking a usable hand, Windows cursor feedback changes to a
+  hand/pointer-style cursor where supported; it restores on hand loss, disarm,
+  pause, quit, or runtime failure.
 - With five thumb-index pinch/releases, exactly five left clicks occur.
 - Holding thumb-index starts drag; pressing `p` or removing the hand releases it.
 - With five thumb-middle pinch/releases, exactly five right clicks occur.
@@ -57,7 +60,20 @@ Pass:
 - Ambiguous multi-pinch shapes show conflict/cancel behavior, not combined
   clicks.
 - Moving the pointer to a screen corner stops through PyAutoGUI failsafe.
-- Press `a` again; overlay returns prominently to `AIRPILOT: DISARMED`.
+- Press `a` again; overlay returns prominently to `AIRPILOT - DISARMED`.
+
+## Two-Hand Tracking
+
+```powershell
+uv run --extra dev airpilot --camera 0 --no-mouse
+```
+
+Pass:
+
+- One visible hand shows `hands 1`.
+- Two visible hands show `hands 2`.
+- The control hand remains stable when hand ordering changes; current policy
+  prefers a reliably classified right hand.
 
 ## Edge Cases
 

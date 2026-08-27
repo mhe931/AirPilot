@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "cursor": {
     "camera_max_x": 0.92,
     "camera_max_y": 0.88,
@@ -34,7 +34,7 @@
     "camera_reconnect_attempts": 6,
     "camera_reconnect_delay_ms": 500,
     "camera_index": 0,
-    "flip_camera_x": true,
+    "flip_camera_x": false,
     "draw_landmarks": true,
     "emergency_corner_failsafe": true,
     "enable_real_mouse": true,

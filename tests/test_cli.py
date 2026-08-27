@@ -7,9 +7,16 @@ from airpilot.config import AppConfig
 def test_armed_flag_sets_start_armed(monkeypatch: object) -> None:
     seen: dict[str, bool] = {}
 
-    def fake_run(config: AppConfig) -> int:
+    def fake_run(
+        config: AppConfig,
+        diagnose_seconds: float | None = None,
+        *,
+        show_preview: bool = True,
+        mouse_output_locked: bool = False,
+    ) -> int:
         seen["enable_real_mouse"] = config.runtime.enable_real_mouse
         seen["start_armed"] = config.runtime.start_armed
+        seen["mouse_output_locked"] = mouse_output_locked
         return 0
 
     monkeypatch.setattr(app, "load_config", lambda _path=None: AppConfig())
@@ -19,15 +26,22 @@ def test_armed_flag_sets_start_armed(monkeypatch: object) -> None:
     monkeypatch.setattr(app, "run", fake_run)
 
     assert app.main(["--armed"]) == 0
-    assert seen == {"enable_real_mouse": True, "start_armed": True}
+    assert seen == {"enable_real_mouse": True, "start_armed": True, "mouse_output_locked": False}
 
 
 def test_no_mouse_overrides_armed_gate(monkeypatch: object) -> None:
     seen: dict[str, bool] = {}
 
-    def fake_run(config: AppConfig) -> int:
+    def fake_run(
+        config: AppConfig,
+        diagnose_seconds: float | None = None,
+        *,
+        show_preview: bool = True,
+        mouse_output_locked: bool = False,
+    ) -> int:
         seen["enable_real_mouse"] = config.runtime.enable_real_mouse
         seen["start_armed"] = config.runtime.start_armed
+        seen["mouse_output_locked"] = mouse_output_locked
         return 0
 
     monkeypatch.setattr(app, "load_config", lambda _path=None: AppConfig())
@@ -37,7 +51,7 @@ def test_no_mouse_overrides_armed_gate(monkeypatch: object) -> None:
     monkeypatch.setattr(app, "run", fake_run)
 
     assert app.main(["--no-mouse", "--armed"]) == 0
-    assert seen == {"enable_real_mouse": False, "start_armed": True}
+    assert seen == {"enable_real_mouse": False, "start_armed": True, "mouse_output_locked": True}
 
 
 def test_diagnostics_disables_real_mouse(monkeypatch: object) -> None:
@@ -48,10 +62,12 @@ def test_diagnostics_disables_real_mouse(monkeypatch: object) -> None:
         diagnose_seconds: float | None = None,
         *,
         show_preview: bool = True,
+        mouse_output_locked: bool = False,
     ) -> int:
         seen["enable_real_mouse"] = config.runtime.enable_real_mouse
         seen["diagnose_seconds"] = diagnose_seconds
         seen["show_preview"] = show_preview
+        seen["mouse_output_locked"] = mouse_output_locked
         return 0
 
     monkeypatch.setattr(app, "load_config", lambda _path=None: AppConfig())
@@ -65,13 +81,20 @@ def test_diagnostics_disables_real_mouse(monkeypatch: object) -> None:
         "enable_real_mouse": False,
         "diagnose_seconds": 1.0,
         "show_preview": False,
+        "mouse_output_locked": True,
     }
 
 
 def test_main_persists_migrated_config(monkeypatch: object) -> None:
     saved: dict[str, AppConfig | None] = {"config": None}
 
-    def fake_run(config: AppConfig) -> int:
+    def fake_run(
+        config: AppConfig,
+        diagnose_seconds: float | None = None,
+        *,
+        show_preview: bool = True,
+        mouse_output_locked: bool = False,
+    ) -> int:
         return 0
 
     def fake_save_config(config: AppConfig, _path: Path | None = None) -> None:

@@ -25,9 +25,10 @@ class MediaPipeHandTracker:
     def __init__(
         self,
         *,
-        max_num_hands: int = 1,
+        max_num_hands: int = 2,
         min_detection_confidence: float = 0.55,
         min_tracking_confidence: float = 0.55,
+        input_is_mirrored: bool = False,
     ) -> None:
         self._hands = mp.solutions.hands.Hands(
             static_image_mode=False,
@@ -36,30 +37,39 @@ class MediaPipeHandTracker:
             min_detection_confidence=min_detection_confidence,
             min_tracking_confidence=min_tracking_confidence,
         )
+        self._input_is_mirrored = input_is_mirrored
 
     def track(self, image: MatLike, timestamp_ms: int) -> TrackingFrame:
         rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         rgb.flags.writeable = False
         result = self._hands.process(rgb)
-        hand = None
+        hands: list[HandLandmarks] = []
         if result.multi_hand_landmarks:
-            landmarks = tuple(
-                Landmark(x=point.x, y=point.y, z=point.z)
-                for point in result.multi_hand_landmarks[0].landmark
-            )
-            handedness = Handedness.UNKNOWN
-            confidence = 1.0
-            if result.multi_handedness:
-                category = result.multi_handedness[0].classification[0]
-                confidence = float(category.score)
-                label = str(category.label).lower()
-                handedness = Handedness.LEFT if label == "left" else Handedness.RIGHT
-            hand = HandLandmarks(landmarks=landmarks, handedness=handedness, confidence=confidence)
+            for index, hand_landmarks in enumerate(result.multi_hand_landmarks):
+                landmarks = tuple(
+                    Landmark(x=point.x, y=point.y, z=point.z) for point in hand_landmarks.landmark
+                )
+                handedness = Handedness.UNKNOWN
+                confidence = 1.0
+                if result.multi_handedness and index < len(result.multi_handedness):
+                    category = result.multi_handedness[index].classification[0]
+                    confidence = float(category.score)
+                    label = str(category.label).lower()
+                    handedness = _mediapipe_handedness(label, self._input_is_mirrored)
+                hands.append(
+                    HandLandmarks(
+                        landmarks=landmarks,
+                        handedness=handedness,
+                        confidence=confidence,
+                    )
+                )
+        control_hand = select_control_hand(tuple(hands))
         return TrackingFrame(
             timestamp_ms=timestamp_ms,
             width=int(image.shape[1]),
             height=int(image.shape[0]),
-            hand=hand,
+            hand=control_hand,
+            hands=tuple(hands),
         )
 
     def draw(self, image: MatLike, hand: HandLandmarks | None) -> MatLike:
@@ -92,3 +102,27 @@ class MediaPipeHandTracker:
 
 def resolve_model_path(filename: str) -> Path:
     return Path(__file__).resolve().parent / "models" / filename
+
+
+def select_control_hand(hands: tuple[HandLandmarks, ...]) -> HandLandmarks | None:
+    if not hands:
+        return None
+    for hand in hands:
+        if hand.handedness is Handedness.RIGHT:
+            return hand
+    for hand in hands:
+        if hand.handedness is Handedness.LEFT:
+            return hand
+    return hands[0]
+
+
+def _mediapipe_handedness(label: str, input_is_mirrored: bool) -> Handedness:
+    if label == "left":
+        handedness = Handedness.LEFT
+    elif label == "right":
+        handedness = Handedness.RIGHT
+    else:
+        return Handedness.UNKNOWN
+    if input_is_mirrored:
+        return handedness
+    return Handedness.RIGHT if handedness is Handedness.LEFT else Handedness.LEFT

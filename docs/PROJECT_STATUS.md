@@ -14,8 +14,8 @@ hardware-tuning work should use short-lived focused feature branches off `main`.
 - No open issues were present when inspected.
 - PR #3 merged camera reconnect hardening into `main`.
 - PR #4 merged the MediaPipe preview-drawing compatibility fix into `main`.
-- The latest merged CI on `main` passed for PR #4 before this follow-up
-  orientation/arming UX work.
+- Draft PR #5 contains orientation, activation UX, cursor feedback, and two-hand
+  tracking work.
 
 ## Completed
 
@@ -35,8 +35,14 @@ hardware-tuning work should use short-lived focused feature branches off `main`.
 - Preview landmark rendering now disables only the landmark overlay if drawing
   fails, instead of crashing the runtime loop.
 - Default preview orientation is corrected away from selfie mirroring, cursor
-  mapping matches that orientation, legacy configs migrate to the new behavior,
-  and the overlay now shows prominent armed/disarmed/preview-only state.
+  mapping matches that orientation, config schema v3 migrates legacy behavior,
+  and the overlay now shows prominent active/disarmed/paused/preview-only state.
+- Up to two MediaPipe hands are tracked; the right hand is preferred as the
+  control hand and a secondary hand is retained for future interactions.
+- `A` enables/disables mouse output unless the run is explicitly locked by
+  `--no-mouse` or diagnostics, avoiding ambiguous preview-only runtime state.
+- Transient cursor feedback is behind a Windows-specific adapter and restored
+  during cleanup.
 - Config persistence under `%APPDATA%\AirPilot\config.json`.
 - Synthetic tests for gestures, mapping, tracking loss/recovery, config, and
   fake mouse event application.
@@ -77,7 +83,8 @@ Last local automated validation:
 - `uv run --extra dev ruff format --check .`
 - `uv run --extra dev ruff check .`
 - `uv run --extra dev mypy src`
-- `uv run --extra dev python -m pytest`: 47 passed.
+- `uv run --extra dev python -m pytest`: 56 passed after two-hand tracking,
+  activation hardening, cursor feedback, and config migration fixes.
 - `uv run python -c "... MediaPipeHandTracker().draw(...)"` completed with
   `draw-ok` against the installed MediaPipe package.
 - `uv run --extra dev airpilot --camera 0` started without the prior preview
@@ -88,19 +95,17 @@ Last local automated validation:
 - `dist\AirPilot\AirPilot.exe --list-cameras` detected
   `0: Camera 0 (DirectShow)`.
 - `dist\AirPilot\AirPilot.exe --config %TEMP%\airpilot-packaged-validation-config.json
-  --camera 0 --diagnose-seconds 3` opened Camera 0 through DirectShow and
-  processed 50 frames at 640x480, about 16.6 fps, with a hand observed,
-  `tracking_lost_events: 1`, and `camera_reconnects: 0`.
-- `dist\AirPilot\AirPilot.exe --camera 0` startup was previously smoke-tested
-  after the preview-drawing fix; this follow-up focused on orientation/arming
-  behavior plus packaged diagnostics.
+  --camera 0 --diagnose-seconds 5` opened Camera 0 through DirectShow and
+  processed 42 frames at 640x480 with `camera_reconnects: 0`.
+- `dist\AirPilot\AirPilot.exe --camera 0` stayed running during a brief packaged
+  live-startup smoke test and was then stopped.
 - Secret scan found only documentation/policy references to secrets/passwords,
   not credentials.
 - `uv run --extra dev airpilot --list-cameras` detected
   `0: Camera 0 (DirectShow)`.
 - `uv run --extra dev airpilot --config %TEMP%\airpilot-validation-config.json
   --camera 0 --diagnose-seconds 5` opened Camera 0 through DirectShow and
-  processed 60 frames at 640x480, about 11.9 fps, with no hand observed and
+  processed 42 frames at 640x480, about 8.4 fps, with no hand observed and
   `camera_reconnects: 0`.
 
 Manual live hand acquisition and real pointer gestures still must be run with a
@@ -111,6 +116,11 @@ hand physically presented to the webcam.
 - The package is unsigned.
 - Camera unplug/replug recovery now retries reopening the same camera index, but
   manual validation is still required to confirm recovery on this hardware.
+- Safe cursor feedback uses transient Windows cursor APIs rather than permanent
+  system cursor replacement; behavior over other applications needs manual
+  validation.
+- Two-hand tracking is implemented but not yet manually validated with two
+  physical hands.
 - MediaPipe emits a `NORM_RECT without IMAGE_DIMENSIONS` warning during live
   hand tracking; it did not reproduce as a crash and is not yet proven to cause
   incorrect gesture behavior in this milestone.
@@ -121,8 +131,9 @@ hand physically presented to the webcam.
 ## Next
 
 Run the compact live validation with a hand in front of the laptop webcam to
-confirm default orientation, visible arm/disarm feedback, and basic movement;
-then tune gesture defaults from the resulting observations.
+confirm overlay readability, activation, movement, cursor feedback, one-hand and
+two-hand detection, and orientation; then tune gesture defaults from the
+resulting observations.
 
 ## Decisions Not To Reverse Silently
 

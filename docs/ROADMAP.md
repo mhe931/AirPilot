@@ -10,8 +10,8 @@
 - Basic docs and CI.
 
 Status: implemented; terminal webcam diagnostics and packaged smoke tests
-passed; awaiting manual hand gesture validation and CI result for
-hardware-tuning changes.
+passed; awaiting final manual gesture usability validation for the active
+Windows UX hardening PR.
 
 ## Milestone 2: Windows Hardening
 
@@ -21,6 +21,8 @@ hardware-tuning changes.
 - Multi-monitor and DPI validation.
 - Safer startup wizard with mouse disabled by default until user arms control.
 - Better gesture visualization and confidence feedback.
+- Virtual keyboard and richer two-hand gestures using the current two-hand
+  tracking model.
 
 ## Milestone 3: Distribution
 

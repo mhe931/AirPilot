@@ -19,7 +19,12 @@ Implemented:
 - Smooth cursor mapping with calibration bounds, sensitivity, smoothing, and
   dead zone.
 - Default actual-orientation preview with matching pointer mapping.
+- Two-hand tracking model with a right-hand-preferred control hand and secondary
+  hand reserved for future interactions.
+- Prominent preview banner for DISARMED, ACTIVE, PAUSED, and preview-only modes.
 - Bounded camera reopen attempts after sustained frame-read failures.
+- Transient Windows cursor feedback while active control-hand tracking is
+  available, restored on shutdown.
 - Windows mouse adapter through PyAutoGUI, isolated behind a testable interface.
 - Config persistence under `%APPDATA%\AirPilot\config.json`.
 - Synthetic landmark tests that do not require a webcam or desktop automation.
@@ -57,9 +62,9 @@ Run with real mouse control:
 uv run --extra dev airpilot --camera 0
 ```
 
-Real mouse mode starts in safe mode. Press `a` in the preview window to arm or
-disarm pointer control. The preview shows a prominent `AIRPILOT: DISARMED` or
-`AIRPILOT: ARMED` banner so the current state is obvious. Use `--armed` only
+Real mouse mode starts in safe mode. Press `a` in the preview window to enable
+or disable pointer control. The preview shows a prominent `AIRPILOT - DISARMED`
+or `AIRPILOT - ACTIVE` banner so the current state is obvious. Use `--armed` only
 when you intentionally want immediate control.
 
 Run safely without moving the mouse:
