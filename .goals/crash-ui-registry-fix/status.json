@@ -1,0 +1,10 @@
+{
+  "goal_id": "crash-ui-registry-fix",
+  "status": "building",
+  "iteration": 1,
+  "builder_model": "Claude:Sonnet-4.6",
+  "inspector_model": "Claude:Haiku-4.5",
+  "initial_sha": "ff492e85d771c47f7edfc45c6877f5c1b29d4fe1",
+  "created_at": "2026-08-27T23:21:26.750+03:00",
+  "history": []
+}
