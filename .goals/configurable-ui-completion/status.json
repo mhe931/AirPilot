@@ -1,10 +1,19 @@
 {
   "goal_id": "configurable-ui-completion",
-  "status": "building",
+  "status": "done",
   "iteration": 1,
   "builder_model": "Claude:Sonnet-4.6",
   "inspector_model": "Claude:Haiku-4.5",
   "initial_sha": "d385b49bc28e4e910954fb276b5f33bffe8c2adb",
   "created_at": "2026-08-27T21:12:03.356+03:00",
-  "history": []
+  "history": [
+    {
+      "iteration": 1,
+      "verdict": "PASS",
+      "builder_sha": "ffb8084",
+      "inspector_feedback": ".goals/configurable-ui-completion/inspector-feedback-1.md",
+      "tests": "251 passed, 1 skipped",
+      "ci": "SUCCESS"
+    }
+  ]
 }
