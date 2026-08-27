@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import hypot
+from math import acos, degrees, hypot
 
 from airpilot.domain.types import HandLandmarks, Landmark
 
@@ -234,3 +234,37 @@ def _thumb_open_score(
 
 def _distance(first: Landmark, second: Landmark) -> float:
     return hypot(first.x - second.x, first.y - second.y)
+
+
+def thumb_index_angle_deg(landmarks: tuple[Landmark, ...]) -> float | None:
+    """Return the 2-D angle between the thumb axis (THUMB_MCP→THUMB_TIP) and the
+    stable hand axis (WRIST→MIDDLE_MCP), in degrees [0, 180].
+
+    Using WRIST→MIDDLE_MCP as the reference (rather than INDEX_MCP→INDEX_TIP)
+    makes the measurement independent of finger-tip bending, scale-invariant,
+    and invariant to in-plane rotation.  It gives the same reading for mirrored
+    (left) hands because the angle between two vectors is independent of their
+    orientation.
+
+    Returns ``None`` when landmarks are too short or the vectors are degenerate.
+    """
+    if len(landmarks) < 21:
+        return None
+    # Stable hand reference axis: wrist → middle MCP
+    wx, wy = landmarks[WRIST].x, landmarks[WRIST].y
+    mx, my = landmarks[MIDDLE_MCP].x, landmarks[MIDDLE_MCP].y
+    hx, hy = mx - wx, my - wy
+
+    # Thumb axis: thumb MCP → thumb tip (2D)
+    tmcp = landmarks[THUMB_MCP]
+    ttip = landmarks[THUMB_TIP]
+    tx, ty = ttip.x - tmcp.x, ttip.y - tmcp.y
+
+    mag_h = hypot(hx, hy)
+    mag_t = hypot(tx, ty)
+    if mag_h < 1e-5 or mag_t < 1e-5:
+        return None
+
+    cos_val = (hx * tx + hy * ty) / (mag_h * mag_t)
+    cos_val = max(-1.0, min(1.0, cos_val))
+    return degrees(acos(cos_val))

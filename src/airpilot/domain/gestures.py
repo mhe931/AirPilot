@@ -3,12 +3,18 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from math import hypot
 
-from airpilot.config import GestureConfig
+from airpilot.config import GestureBinding, GestureConfig
 from airpilot.domain.cursor import CursorMapper
-from airpilot.domain.pose import HandPose, estimate_hand_pose, stable_pointer_anchor
+from airpilot.domain.pose import (
+    HandPose,
+    estimate_hand_pose,
+    stable_pointer_anchor,
+    thumb_index_angle_deg,
+)
 from airpilot.domain.types import (
     CursorPosition,
     GestureEvents,
+    Handedness,
     HandLandmarks,
     Landmark,
     TrackingFrame,
@@ -84,7 +90,7 @@ class GestureEngine:
         )
         pointer_reference = _pointer_reference(hand)
         clutch_was_active = self._clutch_active
-        clutch_now = self._resolve_clutch(pose, pointer_reference)
+        clutch_now = self._resolve_clutch(pose, pointer_reference, hand)
         clutch_releasing = clutch_was_active and not clutch_now
         scroll_distance = _distance(hand, THUMB_TIP, RING_TIP)
 
@@ -367,16 +373,20 @@ class GestureEngine:
                     status="scrolling",
                 )
             delta = (reference.y - anchor) * self.config.scroll_sensitivity
+            # Apply dead zone: skip tiny jitter without advancing the anchor
+            if abs(reference.y - anchor) < self.config.scroll_dead_zone:
+                return replace(events, move=None, active_gesture="scrolling", status="scrolling")
             self._scroll.anchor_y = reference.y
             self._scroll.accumulated_y += delta
             steps = int(self._scroll.accumulated_y / self.config.scroll_activation_y_delta)
             if steps and timestamp_ms - self._scroll.last_emit_ms >= self.config.scroll_cooldown_ms:
                 self._scroll.accumulated_y -= steps * self.config.scroll_activation_y_delta
                 self._scroll.last_emit_ms = timestamp_ms
+                direction = 1 if self.config.scroll_natural_direction else -1
                 return replace(
                     events,
                     move=None,
-                    scroll=-steps * self.config.scroll_units_per_step,
+                    scroll=direction * steps * self.config.scroll_units_per_step,
                     active_gesture="scrolling",
                     status="scrolling",
                 )
@@ -450,10 +460,27 @@ class GestureEngine:
         self._click_anchor_position = None
         self._release_clutch()
 
-    def _resolve_clutch(self, pose: HandPose, pointer_reference: Landmark) -> bool:
+    def _resolve_clutch(
+        self, pose: HandPose, pointer_reference: Landmark, hand: HandLandmarks
+    ) -> bool:
         if not pose.confident:
             return self._clutch_active
-        clutch_now = not pose.thumb_open if self._clutch_active else pose.thumb_closed
+        if self.config.use_thumb_angle_activation:
+            angle = thumb_index_angle_deg(hand.landmarks)
+            if angle is None:
+                return self._clutch_active
+            # pointer_active = angle in range → clutch = NOT pointer_active
+            pointer_was_active = not self._clutch_active
+            pointer_active = _thumb_angle_in_range(
+                angle,
+                self.config.thumb_angle_target_deg,
+                self.config.thumb_angle_tolerance_deg,
+                self.config.thumb_angle_hysteresis_deg,
+                pointer_was_active,
+            )
+            clutch_now = not pointer_active
+        else:
+            clutch_now = not pose.thumb_open if self._clutch_active else pose.thumb_closed
         if clutch_now and not self._clutch_active:
             self._clutch_anchor_position = self.cursor_mapper.current or self.cursor_mapper.map(
                 pointer_reference
@@ -493,6 +520,32 @@ def _freeze_anchor(
     return anchor if anchor is not None else fallback
 
 
+def _thumb_angle_in_range(
+    angle_deg: float,
+    target: float,
+    tolerance: float,
+    hysteresis: float,
+    pointer_was_active: bool,
+) -> bool:
+    """Return True if thumb angle keeps (or enters) the pointer-active state.
+
+    *pointer_was_active* is True when the pointer was moving on the previous
+    frame (i.e. the clutch was NOT engaged).  When already active, the range
+    is widened by *hysteresis* on both sides to prevent jitter at the edge.
+    When inactive, the angle must enter the strict [target±tolerance] window.
+    """
+    if pointer_was_active:
+        low = target - tolerance - hysteresis
+        high = target + tolerance + hysteresis
+    else:
+        low = target - tolerance
+        high = target + tolerance
+    # Small epsilon guards against floating-point representation errors at the
+    # boundary (e.g. 80.000 is represented as 79.999999999...)
+    _EPS = 1e-9
+    return (low - _EPS) <= angle_deg <= (high + _EPS)
+
+
 def _hysteresis(active: bool, distance: float, threshold: float, release: float) -> bool:
     return distance <= (release if active else threshold)
 
@@ -507,3 +560,267 @@ def _has_required_points(hand: HandLandmarks) -> bool:
         and len(hand.landmarks) >= 21
         and all(0.0 <= point.visibility <= 1.0 for point in hand.landmarks)
     )
+
+
+# ---------------------------------------------------------------------------
+# Data-driven gesture binding matcher
+# ---------------------------------------------------------------------------
+
+
+@dataclass(slots=True)
+class _BindingRunState:
+    """Per-binding runtime state tracked across frames."""
+
+    finger_active: bool = False
+    movement_met: bool = False
+    movement_anchor: tuple[float, float] | None = None
+    started_ms: int | None = None
+    last_triggered_ms: int = -1_000_000
+    consumed: bool = False  # prevents re-firing enter/release within the same activation
+
+
+class GestureBindingMatcher:
+    """Evaluates data-driven :class:`~airpilot.config.GestureBinding` objects.
+
+    Call :meth:`process` once per frame *after* :class:`GestureEngine` and
+    :class:`~airpilot.actions.ActionRouter`.  If no other action has been
+    dispatched this frame and a binding's conditions are met, the binding's
+    ``action_id`` is written into the returned :class:`GestureEvents`.
+
+    Conflict detection is available via :meth:`conflicts`.
+    """
+
+    def __init__(
+        self,
+        bindings: list[GestureBinding],
+        gesture_config: GestureConfig,
+    ) -> None:
+        self._bindings = bindings
+        self._config = gesture_config
+        self._states: dict[str, _BindingRunState] = {b.id: _BindingRunState() for b in bindings}
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def process(self, frame: TrackingFrame, events: GestureEvents) -> GestureEvents:
+        """Update internal state and maybe fire a binding action."""
+        can_fire = events.action_id is None and not events.paused
+        return self._tick(frame, events, can_fire=can_fire)
+
+    def conflicts(self) -> list[str]:
+        """Return human-readable conflict descriptions (empty list = clean)."""
+        from airpilot.config import _gesture_bindings_conflict
+
+        enabled = [b for b in self._bindings if b.enabled]
+        result: list[str] = []
+        for i, a in enumerate(enabled):
+            for other in enabled[i + 1 :]:
+                if _gesture_bindings_conflict(a, other):
+                    result.append(
+                        f"Binding {a.id!r} conflicts with {other.id!r}: "
+                        "identical match conditions — only one will fire."
+                    )
+        return result
+
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    def _tick(
+        self,
+        frame: TrackingFrame,
+        events: GestureEvents,
+        *,
+        can_fire: bool,
+    ) -> GestureEvents:
+        for binding in self._bindings:
+            if not binding.enabled:
+                continue
+            state = self._states.setdefault(binding.id, _BindingRunState())
+            hand = _select_hand(binding.hand, frame)
+
+            if hand is None or not _has_required_points(hand):
+                events = self._handle_no_hand(binding, state, frame.timestamp_ms, events, can_fire)
+                if events.action_id is not None:
+                    can_fire = False
+                continue
+
+            pose = estimate_hand_pose(
+                hand,
+                thumb_close_threshold=self._config.thumb_close_threshold,
+                thumb_open_threshold=self._config.thumb_open_threshold,
+                finger_bend_threshold=self._config.finger_bend_threshold,
+                finger_extend_threshold=self._config.finger_extend_threshold,
+            )
+
+            wrist_x = hand.landmarks[WRIST].x
+            wrist_y = hand.landmarks[WRIST].y
+            fingers_ok = _binding_fingers_match(binding, pose)
+
+            if fingers_ok:
+                if not state.finger_active:
+                    state.finger_active = True
+                    state.movement_anchor = (wrist_x, wrist_y)
+                    state.started_ms = frame.timestamp_ms
+                    state.movement_met = False
+                    state.consumed = False
+
+                prev_movement = state.movement_met
+                movement_ok = _binding_movement_met(binding, state, wrist_x, wrist_y)
+                state.movement_met = movement_ok
+
+                # After detecting movement, reset anchor to allow retriggering
+                # on continuous motion (only for enter/hold_repeat, not release)
+                if movement_ok and binding.movement != "none" and binding.trigger != "release":
+                    state.movement_anchor = (wrist_x, wrist_y)
+
+                ts = frame.timestamp_ms
+                if can_fire:
+                    fired = self._maybe_fire(binding, state, ts, prev_movement, movement_ok)
+                    if fired:
+                        can_fire = False
+                        events = replace(events, action_id=binding.action_id or None)
+            else:
+                events = self._handle_release(binding, state, frame.timestamp_ms, events, can_fire)
+                if events.action_id is not None:
+                    can_fire = False
+                state.finger_active = False
+                state.movement_met = False
+                state.movement_anchor = None
+                state.started_ms = None
+                state.consumed = False
+
+        return events
+
+    def _handle_no_hand(
+        self,
+        binding: GestureBinding,
+        state: _BindingRunState,
+        ts: int,
+        events: GestureEvents,
+        can_fire: bool,
+    ) -> GestureEvents:
+        if state.finger_active:
+            # Treat tracking loss as a release
+            events = self._handle_release(binding, state, ts, events, can_fire)
+            state.finger_active = False
+            state.movement_met = False
+            state.movement_anchor = None
+            state.started_ms = None
+            state.consumed = False
+        return events
+
+    def _handle_release(
+        self,
+        binding: GestureBinding,
+        state: _BindingRunState,
+        ts: int,
+        events: GestureEvents,
+        can_fire: bool,
+    ) -> GestureEvents:
+        if (
+            can_fire
+            and binding.trigger == "release"
+            and state.finger_active
+            and state.movement_met
+            and not state.consumed
+            and ts - state.last_triggered_ms >= binding.cooldown_ms
+        ):
+            state.last_triggered_ms = ts
+            state.consumed = True
+            return replace(events, action_id=binding.action_id or None)
+        return events
+
+    def _maybe_fire(
+        self,
+        binding: GestureBinding,
+        state: _BindingRunState,
+        ts: int,
+        prev_movement: bool,
+        movement_ok: bool,
+    ) -> bool:
+        cooldown_ok = ts - state.last_triggered_ms >= binding.cooldown_ms
+        if binding.trigger == "enter":
+            if movement_ok and not prev_movement and not state.consumed and cooldown_ok:
+                state.last_triggered_ms = ts
+                state.consumed = True
+                return True
+        elif binding.trigger == "hold_repeat":
+            started = state.started_ms if state.started_ms is not None else ts
+            if movement_ok and cooldown_ok and ts - started >= binding.hold_ms:
+                state.last_triggered_ms = ts
+                return True
+        return False
+
+
+# ---------------------------------------------------------------------------
+# GestureBindingMatcher private helpers
+# ---------------------------------------------------------------------------
+
+
+def _select_hand(hand_sel: str, frame: TrackingFrame) -> HandLandmarks | None:
+    if hand_sel == "control":
+        return frame.control_hand
+    if hand_sel == "secondary":
+        return frame.secondary_hand
+    if hand_sel == "either":
+        return frame.control_hand
+    if hand_sel == "left":
+        for h in frame.hands:
+            if h.handedness == Handedness.LEFT:
+                return h
+        return None
+    if hand_sel == "right":
+        for h in frame.hands:
+            if h.handedness == Handedness.RIGHT:
+                return h
+        return None
+    return frame.control_hand
+
+
+def _binding_fingers_match(binding: GestureBinding, pose: HandPose) -> bool:
+    if not pose.confident:
+        return False
+    return (
+        _fstate_matches(binding.thumb, pose.thumb_closed, pose.thumb_open)
+        and _fstate_matches(binding.index, pose.index.bent, pose.index.extended)
+        and _fstate_matches(binding.middle, pose.middle.bent, pose.middle.extended)
+        and _fstate_matches(binding.ring, pose.ring.bent, pose.ring.extended)
+        and _fstate_matches(binding.pinky, pose.pinky.bent, pose.pinky.extended)
+    )
+
+
+def _fstate_matches(state: str, bent: bool, extended: bool) -> bool:
+    if state == "any":
+        return True
+    if state == "folded":
+        return bent
+    if state == "extended":
+        return extended
+    return True
+
+
+def _binding_movement_met(
+    binding: GestureBinding,
+    state: _BindingRunState,
+    x: float,
+    y: float,
+) -> bool:
+    if binding.movement == "none":
+        return True
+    anchor = state.movement_anchor
+    if anchor is None:
+        return False
+    dx = x - anchor[0]
+    dy = y - anchor[1]
+    thresh = max(binding.threshold * binding.sensitivity, 1e-6)
+    if binding.movement == "right":
+        return dx > thresh
+    if binding.movement == "left":
+        return dx < -thresh
+    if binding.movement == "down":
+        return dy > thresh
+    if binding.movement == "up":
+        return dy < -thresh
+    return False
