@@ -1,6 +1,6 @@
 {
   "goal_id": "angle-scroll-settings-refine",
-  "status": "building",
+  "status": "done",
   "iteration": 2,
   "builder_model": "Claude:Sonnet-4.6",
   "inspector_model": "Claude:Haiku-4.5",
@@ -15,9 +15,9 @@
     },
     {
       "iteration": 2,
-      "verdict": "pending",
-      "built_at": "2026-08-27T18:34:48.752+03:00",
-      "summary": "Iteration 2: Added GestureBinding data model + persistence/migration (config.py), GestureBindingMatcher with conflict/cooldown/enter/hold-repeat/release triggers (domain/gestures.py), Gesture Bindings tab in SettingsWindow with validation errors (app.py), compact 2-line banner status panel redesign, disabled PowerPoint next-slide example, and full regression tests (217 pass 1 skip, ruff/mypy/CI clean, packaged EXE verified)."
+      "verdict": "PASS",
+      "inspected_at": "2026-08-27T19:15:00.000+03:00",
+      "summary": "All criteria met: GestureBinding schema/serialization/migration, GestureBindingMatcher (enter/hold_repeat/release/cooldown/movement), Settings Gesture Bindings tab with persistence/reset/validation, compact high-contrast preview panel, 36 new regression tests. 217 pass, 1 skip. ruff/mypy/CI clean."
     }
   ]
 }
