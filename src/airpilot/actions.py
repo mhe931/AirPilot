@@ -92,12 +92,14 @@ class ActionRouter:
 
         mode_held = _shortcut_mode_held(frame.secondary_hand, self.gestures)
         if self._task_view.active and not mode_held:
-            index_still_held = _task_view_index_held(frame.control_hand, self.gestures)
-            if index_still_held:
+            control_hand_valid = _valid_action_hand(frame.control_hand)
+            index_released = _task_view_index_released(frame.control_hand, self.gestures)
+            if not control_hand_valid or not index_released:
                 self._suppress_index_click_until_release = True
             return self._finish_task_view(
                 events,
-                confirm=self.gestures.task_view_confirm_on_release and not index_still_held,
+                confirm=self.gestures.task_view_confirm_on_release
+                and (not control_hand_valid or index_released),
             )
 
         arm_held = _arm_held(frame.secondary_hand, self.gestures) and not mode_held
@@ -112,7 +114,7 @@ class ActionRouter:
         if not mode_held:
             self._reset_shortcut()
             if self._task_view.pending:
-                if _task_view_index_held(frame.control_hand, self.gestures):
+                if not _task_view_index_released(frame.control_hand, self.gestures):
                     self._suppress_index_click_until_release = True
                     self._task_view = _TaskViewState()
                     return self._suppress_mouse(
