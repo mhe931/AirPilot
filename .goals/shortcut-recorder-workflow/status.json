@@ -1,10 +1,18 @@
 {
   "goal_id": "shortcut-recorder-workflow",
-  "status": "building",
+  "status": "done",
   "iteration": 1,
   "builder_model": "Claude:Sonnet-4.6",
   "inspector_model": "Claude:Haiku-4.5",
   "initial_sha": "e4cc14c9587e916b297bfaef97f947ac69621d92",
   "created_at": "2026-08-27T23:52:43.105+03:00",
-  "history": []
+  "history": [
+    {
+      "iteration": 1,
+      "verdict": "PASS",
+      "inspector_sha": "b1dc2f7cb96786bd17d19c6be553a3b2e6485cc9",
+      "inspected_at": "2026-08-28T00:24:06.784+03:00",
+      "summary": "All acceptance criteria met. 333 tests pass. Quality gates clean. Git state synchronized."
+    }
+  ]
 }
