@@ -75,6 +75,69 @@ EMOJI_MOVE_UP = "↑"
 EMOJI_MOVE_DOWN = "↓"
 
 
+# ---------------------------------------------------------------------------
+# Shared Tkinter root – one Tk() per process.
+#
+# Python's Tkinter only supports one Tk() interpreter per process. Creating
+# multiple Tk() instances (e.g., one for Help and one for Settings) corrupts
+# the shared Tcl state, causing crashes – especially on Windows when the
+# OpenCV message pump (cv2.waitKey) interleaves with Tk event handling.
+#
+# _TkSharedRoot is a reference-counted module singleton. Both HelpWindow and
+# SettingsWindow acquire/release it; the root is withdrawn (invisible) and
+# never shown directly.
+# ---------------------------------------------------------------------------
+
+
+class _TkSharedRoot:
+    """Thread-safe singleton wrapper for the one hidden ``tk.Tk`` root."""
+
+    _root: tk.Tk | None = None
+    _refcount: int = 0
+
+    @classmethod
+    def acquire(cls) -> tk.Tk:
+        """Increment the reference count and return the shared root.
+
+        Creates the root the first time it is requested.
+        """
+        if cls._root is None:
+            cls._root = tk.Tk()
+            with suppress(tk.TclError):
+                cls._root.withdraw()
+        cls._refcount += 1
+        return cls._root
+
+    @classmethod
+    def release(cls) -> None:
+        """Decrement the reference count; destroy the root when it reaches 0."""
+        cls._refcount = max(cls._refcount - 1, 0)
+        if cls._refcount == 0 and cls._root is not None:
+            with suppress(tk.TclError, Exception):
+                cls._root.destroy()
+            cls._root = None
+
+    @classmethod
+    def pump(cls) -> None:
+        """Process pending Tk events without blocking; no-op if not alive."""
+        if cls._root is None:
+            return
+        try:
+            cls._root.update_idletasks()
+            cls._root.update()
+        except tk.TclError:
+            pass
+
+    @classmethod
+    def force_close(cls) -> None:
+        """Destroy root and reset counter unconditionally (used in teardown)."""
+        if cls._root is not None:
+            with suppress(tk.TclError, Exception):
+                cls._root.destroy()
+            cls._root = None
+        cls._refcount = 0
+
+
 def _hex_to_bgr(hex_color: str) -> tuple[int, int, int]:
     """Convert a CSS hex color (``#rrggbb``) to an OpenCV BGR tuple.
 
@@ -141,18 +204,13 @@ def _sidebar_lines(
     if gesture:
         lines.append(gesture)
 
-    # Gesture→action dashboard
+    # Gesture→action dashboard – replace rows by mode (no stale entries).
+    # When in shortcut mode, only shortcut-mode gestures are relevant.
+    # When in default mode, only default-mode gestures are shown.
     lines.append("---")
-    lines.append("[thumb open] move")
-    lines.append("[thumb fold] freeze")
-    lines.append("[pinch idx]  click")
-    lines.append("[pinch mid]  r-click")
-    lines.append("[ring+wrist] scroll")
-    lines.append("[arm gesture] arm")
-    lines.append("[help gesture] help")
     if events.shortcut_mode:
         lines.append("=SHORTCUT MODE=")
-        # Resolve configured shortcut actions
+        # Resolve configured shortcut actions from config
         ga = config.actions.gesture_actions
         _sc_label = config.actions.catalog
 
@@ -166,9 +224,18 @@ def _sidebar_lines(
         lines.append(f"[mid-h]{_sc('shortcut_middle_hold')}")
         lines.append(f"[ring] {_sc('shortcut_ring_release')}")
         lines.append(f"[pinky]{_sc('shortcut_pinky_release')}")
+        lines.append("[hold-idx] task view")
+        lines.append("[release 2nd] exit")
     else:
-        lines.append("[2nd hand] shortcuts")
-    # Configurable bindings – show enabled ones
+        lines.append("[thumb open] move")
+        lines.append("[thumb fold] freeze")
+        lines.append("[pinch idx]  click")
+        lines.append("[pinch mid]  r-click")
+        lines.append("[ring+wrist] scroll")
+        lines.append("[arm gesture] arm")
+        lines.append("[help gesture] help")
+        lines.append("[2nd thumb+pinky] shortcuts")
+    # Configurable bindings – show enabled ones (any mode)
     for b in config.gesture_bindings:
         if b.enabled and b.action_id:
             short_id = b.action_id.split(".")[-1]
@@ -528,17 +595,30 @@ def run(
         traceback.print_exc(file=sys.stderr)
         exit_code = 1
     finally:
+        # Destroy the OpenCV window first to stop its message pump before
+        # touching any Tkinter state. On Windows, cv2.waitKey() runs an
+        # abbreviated Windows message loop; destroying OpenCV windows before
+        # Tk prevents cross-pump corruption that causes the native crash.
+        with suppress(Exception):
+            cv2.destroyAllWindows()
         if camera is not None:
-            camera.close()
+            with suppress(Exception):
+                camera.close()
         if tracker is not None:
-            tracker.close()
+            with suppress(Exception):
+                tracker.close()
         if safety is not None and mouse is not None:
-            safety.disarm(mouse)
+            with suppress(Exception):
+                safety.disarm(mouse)
         if "help_window" in locals():
-            help_window.close()
+            with suppress(Exception):
+                help_window.close()
         if "settings_window" in locals():
-            settings_window.close()
-        cv2.destroyAllWindows()
+            with suppress(Exception):
+                settings_window.close()
+        # Release the shared Tk root after all Toplevel windows are gone.
+        with suppress(Exception):
+            _TkSharedRoot.force_close()
         if exit_reason is ExitReason.UNKNOWN:
             exit_reason = ExitReason.EXPLICIT_SHUTDOWN
         _report_exit(exit_reason, exit_detail)
@@ -1024,8 +1104,7 @@ class SettingsWindow:
     def open(self) -> None:
         if self.is_open():
             return
-        self._root = tk.Tk()
-        self._root.withdraw()
+        self._root = _TkSharedRoot.acquire()
         self._window = tk.Toplevel(self._root)
         self._window.title("AirPilot Settings")
         self._window.resizable(True, True)
@@ -1049,8 +1128,7 @@ class SettingsWindow:
         if not self.is_open():
             return
         try:
-            self._root.update_idletasks()  # type: ignore[union-attr]
-            self._root.update()  # type: ignore[union-attr]
+            _TkSharedRoot.pump()
         except tk.TclError:
             self.close()
 
@@ -1058,10 +1136,10 @@ class SettingsWindow:
         with suppress(tk.TclError):
             if self._window is not None:
                 self._window.destroy()
-            if self._root is not None:
-                self._root.destroy()
         self._window = None
-        self._root = None
+        if self._root is not None:
+            _TkSharedRoot.release()
+            self._root = None
 
     # ------------------------------------------------------------------
     # Private UI construction helpers
@@ -1688,11 +1766,10 @@ class _TkHelpBackend:
         if self._window is not None:
             with suppress(tk.TclError):
                 self._window.destroy()
-        if self._root is not None:
-            with suppress(tk.TclError):
-                self._root.destroy()
         self._window = None
-        self._root = None
+        if self._root is not None:
+            _TkSharedRoot.release()
+            self._root = None
         self._tree = None
         self._search_var = None
         self._category_list = None
@@ -1708,8 +1785,7 @@ class _TkHelpBackend:
             return False
 
     def _create_window(self, config: AppConfig) -> None:
-        self._root = tk.Tk()
-        self._root.withdraw()
+        self._root = _TkSharedRoot.acquire()
         self._window = tk.Toplevel(self._root)
         self._window.title("AirPilot Help")
         self._window.minsize(640, 420)
@@ -1855,8 +1931,7 @@ class _TkHelpBackend:
         if self._root is None:
             return
         try:
-            self._root.update_idletasks()
-            self._root.update()
+            _TkSharedRoot.pump()
         except tk.TclError:
             self.close()
 
@@ -1982,15 +2057,17 @@ def _help_emoji_for_action(action_text: str) -> str:
 
 
 def _format_help_row(line: str) -> str:
+    """Convert a pipe-delimited help row to a │-separated Treeview row.
+
+    No column values are truncated – the Treeview uses ``stretch=True`` columns
+    and handles layout.  Truncation was the root cause of the
+    ``Switch apps | Shortcut Mode + h`` display bug.
+    """
     parts = [part.strip() for part in line.split(" | ")]
     if len(parts) != 4:
         return line
     emoji = _help_emoji_for_action(parts[0])
-    action = parts[0][:24].ljust(24)
-    gesture = parts[1][:17].ljust(17)
-    keys = parts[2][:17].ljust(17)
-    state = parts[3]
-    return f"  {emoji}  │ {action}  │ {gesture}  │ {keys}  │ {state}"
+    return f"  {emoji}  │ {parts[0]}  │ {parts[1]}  │ {parts[2]}  │ {parts[3]}"
 
 
 def _filter_help_sections(sections: Sequence[HelpSection], filter_text: str) -> list[HelpSection]:

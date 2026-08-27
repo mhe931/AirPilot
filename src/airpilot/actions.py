@@ -583,6 +583,12 @@ def action_help_lines(actions: ActionConfig, *, max_actions: int | None = None) 
                 _action_state(actions, "ui.toggle_help"),
             ),
             _dictionary_row(
+                "Open Settings",
+                "Press S in the preview window",
+                "S",
+                "enabled",
+            ),
+            _dictionary_row(
                 "Emergency stop",
                 "Move pointer into a screen corner",
                 "PyAutoGUI failsafe",
