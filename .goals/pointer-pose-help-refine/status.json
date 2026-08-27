@@ -1,0 +1,21 @@
+﻿{
+  "goal_id": "pointer-pose-help-refine",
+  "status": "inspecting",
+  "iteration": 2,
+  "builder_model": "Claude:Sonnet-4.6",
+  "inspector_model": "Claude:Haiku-4.5",
+  "initial_sha": "2fb1d6d8b00b2843a14b0013a88a75c6e616248d",
+  "created_at": "2026-08-27T15:31:14.3641729+03:00",
+  "history": [
+    {
+      "iteration": 1,
+      "verdict": "FAIL",
+      "summary": "Clutch release can still jump after the hand moves while frozen."
+    },
+    {
+      "iteration": 2,
+      "verdict": "PASS",
+      "summary": "Pointer pose Help refinement meets the goal; clutch resume is rebased and verified without a stationary jump. Manual physical validation remains."
+    }
+  ]
+}
