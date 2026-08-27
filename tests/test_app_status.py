@@ -299,14 +299,20 @@ def test_help_content_is_readable_and_renderable() -> None:
 
     assert "AirPilot Help" in lines
     assert "QUICK START" in lines
-    assert "PHILOSOPHY" in lines
-    assert "CORE MOUSE GESTURES" in lines
+    assert "MOUSE" in lines
+    assert "CONTROL" in lines
     assert "SHORTCUT MODE" in lines
-    assert "AVAILABLE SHORTCUT ACTIONS" in lines
+    assert "WINDOWS/APPS" in lines
+    assert "BROWSER" in lines
+    assert "PRESENTATION" in lines
+    assert "MEDIA" in lines
     assert any("Task View" in line for line in lines)
-    assert any("Clutch + index bend/release | Left click" in line for line in lines)
-    assert any("Clipboard history `Win+V`" in line for line in lines)
-    assert "Q | Quit" in lines
+    assert any("Move pointer | Thumb open; move palm/knuckle" in line for line in lines)
+    assert any("Left click | While clutched, bend/release index" in line for line in lines)
+    assert any(
+        "Clipboard history | Shortcut mode + hold thumb/middle | Win+V" in line for line in lines
+    )
+    assert any("Quit AirPilot | Press Q" in line for line in lines)
     assert isinstance(image, np.ndarray)
     assert image.shape[0] > 0
     assert image.shape[0] <= 760

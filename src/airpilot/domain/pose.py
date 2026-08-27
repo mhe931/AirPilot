@@ -71,6 +71,32 @@ class HandPose:
         )
 
 
+def stable_pointer_anchor(hand: HandLandmarks) -> Landmark | None:
+    """Return a palm/knuckle anchor that is stable while fingertips bend."""
+    if len(hand.landmarks) < 21:
+        return None
+    landmarks = hand.landmarks
+    if _distance(landmarks[INDEX_MCP], landmarks[PINKY_MCP]) <= 0.001:
+        return None
+    if _hand_scale(landmarks) <= 0.001:
+        return None
+
+    weighted_points = (
+        (landmarks[WRIST], 1.0),
+        (landmarks[INDEX_MCP], 2.0),
+        (landmarks[MIDDLE_MCP], 2.0),
+        (landmarks[RING_MCP], 1.5),
+        (landmarks[PINKY_MCP], 1.0),
+    )
+    total_weight = sum(weight for _point, weight in weighted_points)
+    return Landmark(
+        x=sum(point.x * weight for point, weight in weighted_points) / total_weight,
+        y=sum(point.y * weight for point, weight in weighted_points) / total_weight,
+        z=sum(point.z * weight for point, weight in weighted_points) / total_weight,
+        visibility=min(point.visibility for point, _weight in weighted_points),
+    )
+
+
 def estimate_hand_pose(
     hand: HandLandmarks,
     *,

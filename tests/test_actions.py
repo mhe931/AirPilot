@@ -21,14 +21,29 @@ from airpilot.input import RecordingMouseController
 def test_action_help_lines_are_generated_from_config() -> None:
     lines = action_help_lines(ActionConfig())
 
-    assert "PHILOSOPHY" in lines
-    assert "CORE MOUSE GESTURES" in lines
+    assert "QUICK START" in lines
+    assert "MOUSE" in lines
+    assert "CONTROL" in lines
     assert "SHORTCUT MODE" in lines
-    assert "AVAILABLE SHORTCUT ACTIONS" in lines
-    assert any("Clutch + index bend/release | Left click" in line for line in lines)
-    assert any("Copy" in line for line in lines)
-    assert any("Clipboard history `Win+V`" in line for line in lines)
-    assert any("RISKY ACTIONS" in line for line in lines)
+    assert "WINDOWS/APPS" in lines
+    assert "BROWSER" in lines
+    assert "PRESENTATION" in lines
+    assert "MEDIA" in lines
+    assert "RISKY" in lines
+    assert lines.count("What it does | Gesture | Shortcut/Keys | State") >= 8
+    assert any("Move pointer | Thumb open; move palm/knuckle" in line for line in lines)
+    assert any("Left click | While clutched, bend/release index" in line for line in lines)
+    assert any(
+        "Clipboard history | Shortcut mode + hold thumb/middle | Win+V" in line for line in lines
+    )
+    assert any(
+        "Open Task View | Shortcut Mode + hold thumb/index | Win+Tab" in line for line in lines
+    )
+    assert all(
+        line.split(" | ")[0] != "Shortcut mode + hold thumb/middle"
+        for line in lines
+        if "Clipboard history" in line
+    )
 
 
 def test_action_help_lines_include_custom_profiles() -> None:
@@ -42,8 +57,7 @@ def test_action_help_lines_include_custom_profiles() -> None:
 
     lines = action_help_lines(actions)
 
-    assert "Custom" in lines
-    assert any("Custom action" in line for line in lines)
+    assert any("Custom action | Configure in action catalog | Ctrl+Alt+P" in line for line in lines)
 
 
 def test_validate_action_config_rejects_unknown_binding() -> None:

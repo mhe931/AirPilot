@@ -712,9 +712,22 @@ def _help_lines(config: AppConfig) -> list[str]:
 
 
 def _help_image(lines: Sequence[str]) -> MatLike:
-    width = 1760 if len(lines) > 72 else 1480 if len(lines) > 48 else 860
-    line_height = 18 if len(lines) > 72 else 20
-    column_count = 4 if len(lines) > 72 else 3 if len(lines) > 48 else 1
+    if len(lines) > 90:
+        width = 2200
+        line_height = 16
+        column_count = 5
+    elif len(lines) > 72:
+        width = 1760
+        line_height = 18
+        column_count = 4
+    elif len(lines) > 48:
+        width = 1480
+        line_height = 20
+        column_count = 3
+    else:
+        width = 860
+        line_height = 20
+        column_count = 1
     column_width = width // column_count
     render_lines = _wrap_help_lines(lines, column_width - 32)
     rows = (len(render_lines) + column_count - 1) // column_count
