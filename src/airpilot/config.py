@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-CURRENT_SCHEMA_VERSION = 9
+CURRENT_SCHEMA_VERSION = 10
 
 _V4_CURSOR_DEFAULTS = {
     "camera_min_x": 0.08,
@@ -69,6 +69,14 @@ class GestureConfig:
     thumb_open_threshold: float = 0.82
     finger_bend_threshold: float = 1.35
     finger_extend_threshold: float = 1.70
+    # Angle-based thumb activation (replaces score-based when enabled)
+    use_thumb_angle_activation: bool = True
+    thumb_angle_target_deg: float = 90.0
+    thumb_angle_tolerance_deg: float = 10.0
+    thumb_angle_hysteresis_deg: float = 0.0
+    # Scroll enhancements
+    scroll_natural_direction: bool = False
+    scroll_dead_zone: float = 0.004
 
 
 @dataclass(slots=True)
@@ -300,6 +308,8 @@ def _config_from_dict(raw: dict[str, Any]) -> AppConfig:
         return _migrate_v7_config(raw)
     if version == 8:
         return _migrate_v8_config(raw)
+    if version == 9:
+        return _migrate_v9_config(raw)
     if version != CURRENT_SCHEMA_VERSION:
         raise ValueError(f"Unsupported AirPilot config schema_version {version!r}")
     return AppConfig(
@@ -398,6 +408,12 @@ def _gestures_from_section(raw: dict[str, Any]) -> GestureConfig:
         "thumb_open_threshold": defaults.thumb_open_threshold,
         "finger_bend_threshold": defaults.finger_bend_threshold,
         "finger_extend_threshold": defaults.finger_extend_threshold,
+        "use_thumb_angle_activation": defaults.use_thumb_angle_activation,
+        "thumb_angle_target_deg": defaults.thumb_angle_target_deg,
+        "thumb_angle_tolerance_deg": defaults.thumb_angle_tolerance_deg,
+        "thumb_angle_hysteresis_deg": defaults.thumb_angle_hysteresis_deg,
+        "scroll_natural_direction": defaults.scroll_natural_direction,
+        "scroll_dead_zone": defaults.scroll_dead_zone,
     }
     section.update(raw)
     return GestureConfig(**section)
@@ -449,6 +465,17 @@ def _migrate_v8_config(raw: dict[str, Any]) -> AppConfig:
     return AppConfig(
         schema_version=CURRENT_SCHEMA_VERSION,
         gestures=_gestures_from_section(_migrated_v9_gestures(_section(raw, "gestures"))),
+        cursor=CursorConfig(**_section(raw, "cursor")),
+        actions=_actions_from_section(_section(raw, "actions")),
+        runtime=RuntimeConfig(**_section(raw, "runtime")),
+    )
+
+
+def _migrate_v9_config(raw: dict[str, Any]) -> AppConfig:
+    """v9 → v10: new thumb-angle and scroll-enhancement fields gain safe defaults."""
+    return AppConfig(
+        schema_version=CURRENT_SCHEMA_VERSION,
+        gestures=_gestures_from_section(_section(raw, "gestures")),
         cursor=CursorConfig(**_section(raw, "cursor")),
         actions=_actions_from_section(_section(raw, "actions")),
         runtime=RuntimeConfig(**_section(raw, "runtime")),

@@ -39,9 +39,9 @@ def test_status_lines_show_tracking_gesture_and_safe_mouse() -> None:
 
     assert lines[0] == "AIRPILOT - DISARMED"
     assert "thumb+middle to arm" in lines[1]
-    assert "tracking hand" in lines[2]
+    assert "hand" in lines[2]
     assert "click_candidate" in lines[2]
-    assert "control" in lines[2]
+    assert "score" in lines[2]
     assert "A arm" in lines[3]
     assert not any("Thumb + index" in line for line in lines)
 

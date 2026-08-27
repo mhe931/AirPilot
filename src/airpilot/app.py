@@ -36,6 +36,7 @@ from airpilot.config import (
 from airpilot.display import create_display_provider
 from airpilot.domain.cursor import CursorMapper
 from airpilot.domain.gestures import GestureEngine
+from airpilot.domain.pose import thumb_index_angle_deg
 from airpilot.domain.types import GestureEvents, TrackingFrame
 from airpilot.input import MouseController, PyAutoGuiMouseController
 from airpilot.safety import MouseSafetyGate
@@ -222,6 +223,7 @@ def run(
         engine = GestureEngine(config.gestures, CursorMapper(config.cursor))
         action_router = ActionRouter(config.actions, config.gestures)
         help_window = HelpWindow(visible=config.runtime.show_gesture_help)
+        settings_window = SettingsWindow(config, None)
         mouse = PyAutoGuiMouseController(
             emergency_corner_failsafe=config.runtime.emergency_corner_failsafe,
         )
@@ -319,6 +321,7 @@ def run(
                     safety=safety,
                     mouse=mouse,
                     help_window=help_window,
+                    settings_window=settings_window,
                     mouse_output_locked=mouse_output_locked,
                 )
                 if key_exit_reason is not None:
@@ -330,6 +333,7 @@ def run(
                 }:
                     failsafe_latched = False
                 help_window.update(config)
+                settings_window.update()
                 preview_visibility = _preview_window_visibility(
                     PREVIEW_WINDOW_TITLE,
                     preview_created=preview_created,
@@ -389,6 +393,8 @@ def run(
             safety.disarm(mouse)
         if "help_window" in locals():
             help_window.close()
+        if "settings_window" in locals():
+            settings_window.close()
         cv2.destroyAllWindows()
         if exit_reason is ExitReason.UNKNOWN:
             exit_reason = ExitReason.EXPLICIT_SHUTDOWN
@@ -421,12 +427,19 @@ def status_lines(
     )
     controls = _controls_text(config, mouse_output_locked=mouse_output_locked)
     hand_count = len(frame.hands)
+    # Compact angle field
+    angle_str = "--"
+    if hand is not None and config.gestures.use_thumb_angle_activation:
+        ang = thumb_index_angle_deg(hand.landmarks)
+        if ang is not None:
+            angle_str = f"{ang:.0f}\u00b0"
     lines = [
         headline,
         guidance,
         (
-            f"tracking {tracking} | gesture {events.active_gesture} | "
-            f"hands {hand_count} | control {control_hand} | score {hand_score} | {fps:.1f} fps"
+            f"{tracking} | {events.active_gesture} | "
+            f"hand {control_hand}/{hand_count} | score {hand_score} | "
+            f"\u03b8{angle_str} | {fps:.0f}fps"
         ),
         controls,
     ]
@@ -527,6 +540,7 @@ def _handle_keypress(
     safety: MouseSafetyGate,
     mouse: MouseController,
     help_window: HelpWindow | None = None,
+    settings_window: SettingsWindow | None = None,
     mouse_output_locked: bool = False,
 ) -> tuple[ExitReason | None, str | None]:
     command = _normalized_key(key)
@@ -539,6 +553,11 @@ def _handle_keypress(
         return None, "Paused" if pause_events.paused else "Resumed"
     if command == "h":
         return None, _dispatch_ui_action("ui.toggle_help", help_window)
+    if command == "s":
+        if settings_window is not None and not settings_window.is_open():
+            settings_window.open()
+            return None, "Settings opened"
+        return None, None
     if command == "a":
         if mouse_output_locked:
             return None, "Mouse output disabled for diagnostics/--no-mouse"
@@ -650,8 +669,8 @@ def _headline_text(
 
 def _controls_text(config: AppConfig, *, mouse_output_locked: bool = False) -> str:
     if mouse_output_locked:
-        return "Controls: P pause | H help | Q quit | Click preview for keys"
-    return "Controls: A arm | P pause | H help | Q quit | Click preview for keys"
+        return "Controls: P pause | H help | S settings | Q quit"
+    return "Controls: A arm | P pause | H help | S settings | Q quit"
 
 
 @dataclass(slots=True)
@@ -714,6 +733,263 @@ class HelpWindow:
             self._backend.close()
         self.visible = False
         self._backend = None
+
+
+class SettingsWindow:
+    """Windows-style modal-like settings dialog for AirPilot.
+
+    Accessible via the 'S' key while the preview is focused.
+    Apply persists to the config file; Cancel discards; Reset restores defaults.
+    """
+
+    def __init__(self, config: AppConfig, config_path: Path | None = None) -> None:
+        self._config = config
+        self._config_path = config_path
+        self._root: tk.Tk | None = None
+        self._window: tk.Toplevel | None = None
+
+    def open(self) -> None:
+        if self.is_open():
+            return
+        self._root = tk.Tk()
+        self._root.withdraw()
+        self._window = tk.Toplevel(self._root)
+        self._window.title("AirPilot Settings")
+        self._window.resizable(True, True)
+        self._window.minsize(540, 400)
+        self._window.protocol("WM_DELETE_WINDOW", self.close)
+        self._build_ui()
+
+    def is_open(self) -> bool:
+        if self._window is None:
+            return False
+        try:
+            return bool(self._window.winfo_exists())
+        except tk.TclError:
+            return False
+
+    def update(self) -> None:
+        if not self.is_open():
+            return
+        try:
+            self._root.update_idletasks()  # type: ignore[union-attr]
+            self._root.update()  # type: ignore[union-attr]
+        except tk.TclError:
+            self.close()
+
+    def close(self) -> None:
+        with suppress(tk.TclError):
+            if self._window is not None:
+                self._window.destroy()
+            if self._root is not None:
+                self._root.destroy()
+        self._window = None
+        self._root = None
+
+    # ------------------------------------------------------------------
+    # Private UI construction helpers
+    # ------------------------------------------------------------------
+
+    def _build_ui(self) -> None:
+        win = self._window
+        assert win is not None
+
+        nb = ttk.Notebook(win)
+        nb.pack(fill="both", expand=True, padx=8, pady=8)
+
+        # --- Mouse / activation tab ---
+        mouse_frame = ttk.Frame(nb, padding=10)
+        nb.add(mouse_frame, text="Mouse & Activation")
+        self._mouse_vars: dict[str, tk.Variable] = {}
+        self._build_mouse_tab(mouse_frame)
+
+        # --- Scroll tab ---
+        scroll_frame = ttk.Frame(nb, padding=10)
+        nb.add(scroll_frame, text="Scroll")
+        self._scroll_vars: dict[str, tk.Variable] = {}
+        self._build_scroll_tab(scroll_frame)
+
+        # --- Buttons ---
+        btn_frame = ttk.Frame(win)
+        btn_frame.pack(fill="x", padx=8, pady=(0, 8))
+        ttk.Button(btn_frame, text="Apply", command=self._apply).pack(side="right", padx=(4, 0))
+        ttk.Button(btn_frame, text="Cancel", command=self.close).pack(side="right", padx=(4, 0))
+        ttk.Button(btn_frame, text="Reset to defaults", command=self._reset).pack(
+            side="left", padx=(0, 4)
+        )
+
+    def _build_mouse_tab(self, frame: ttk.Frame) -> None:
+        g = self._config.gestures
+        c = self._config.cursor
+        rows: list[tuple[str, str, tk.Variable, tuple[str, ...]]] = [
+            (
+                "Thumb angle target (°)",
+                "Target thumb-to-hand angle for activation (0–180)",
+                tk.DoubleVar(value=g.thumb_angle_target_deg),
+                ("from_", "to", "increment"),
+            ),
+            (
+                "Thumb angle tolerance (°)",
+                "±degrees around target; active range is target±tolerance",
+                tk.DoubleVar(value=g.thumb_angle_tolerance_deg),
+                ("from_", "to", "increment"),
+            ),
+            (
+                "Activation hysteresis (°)",
+                "Extra tolerance while pointer is active (prevents jitter at boundary)",
+                tk.DoubleVar(value=g.thumb_angle_hysteresis_deg),
+                ("from_", "to", "increment"),
+            ),
+            (
+                "Pointer sensitivity",
+                "Speed multiplier for cursor movement (0.1–5.0)",
+                tk.DoubleVar(value=c.sensitivity),
+                ("from_", "to", "increment"),
+            ),
+            (
+                "Pointer smoothing (0–1)",
+                "Alpha for EMA smoothing; 1.0 = instant, 0.1 = very smooth",
+                tk.DoubleVar(value=c.smoothing_alpha),
+                ("from_", "to", "increment"),
+            ),
+            (
+                "Pointer dead zone (px)",
+                "Minimum pixel displacement to move cursor",
+                tk.IntVar(value=c.dead_zone_px),
+                ("from_", "to", "increment"),
+            ),
+        ]
+        spin_ranges = {
+            "Thumb angle target (°)": (0.0, 180.0, 1.0),
+            "Thumb angle tolerance (°)": (1.0, 45.0, 0.5),
+            "Activation hysteresis (°)": (0.0, 30.0, 0.5),
+            "Pointer sensitivity": (0.1, 5.0, 0.05),
+            "Pointer smoothing (0–1)": (0.05, 1.0, 0.01),
+            "Pointer dead zone (px)": (0, 20, 1),
+        }
+        for row_idx, (label, hint, var, _) in enumerate(rows):
+            lo, hi, inc = spin_ranges[label]
+            ttk.Label(frame, text=label, anchor="w").grid(row=row_idx, column=0, sticky="w", pady=3)
+            sb = ttk.Spinbox(frame, textvariable=var, from_=lo, to=hi, increment=inc, width=10)
+            sb.grid(row=row_idx, column=1, sticky="w", padx=(8, 0), pady=3)
+            ttk.Label(frame, text=hint, foreground="gray", anchor="w").grid(
+                row=row_idx, column=2, sticky="w", padx=(12, 0), pady=3
+            )
+            self._mouse_vars[label] = var
+        frame.columnconfigure(2, weight=1)
+
+        # Use angle activation checkbox
+        self._use_angle_var = tk.BooleanVar(value=g.use_thumb_angle_activation)
+        cb_row = len(rows)
+        ttk.Checkbutton(
+            frame,
+            text="Use angle-based activation (recommended)",
+            variable=self._use_angle_var,
+        ).grid(row=cb_row, column=0, columnspan=3, sticky="w", pady=(8, 3))
+
+    def _build_scroll_tab(self, frame: ttk.Frame) -> None:
+        g = self._config.gestures
+        rows = [
+            (
+                "Scroll sensitivity",
+                "Speed of scroll (0.1–10.0)",
+                tk.DoubleVar(value=g.scroll_sensitivity),
+                0.1,
+                10.0,
+                0.1,
+            ),
+            (
+                "Scroll dead zone",
+                "Min hand displacement before scrolling starts (0–0.1)",
+                tk.DoubleVar(value=g.scroll_dead_zone),
+                0.0,
+                0.1,
+                0.002,
+            ),
+            (
+                "Units per step",
+                "Scroll wheel units per gesture step (1–20)",
+                tk.IntVar(value=g.scroll_units_per_step),
+                1,
+                20,
+                1,
+            ),
+        ]
+        for row_idx, (label, hint, var, lo, hi, inc) in enumerate(rows):
+            ttk.Label(frame, text=label, anchor="w").grid(row=row_idx, column=0, sticky="w", pady=3)
+            ttk.Spinbox(frame, textvariable=var, from_=lo, to=hi, increment=inc, width=10).grid(
+                row=row_idx, column=1, sticky="w", padx=(8, 0), pady=3
+            )
+            ttk.Label(frame, text=hint, foreground="gray", anchor="w").grid(
+                row=row_idx, column=2, sticky="w", padx=(12, 0), pady=3
+            )
+            self._scroll_vars[label] = var
+
+        self._natural_dir_var = tk.BooleanVar(value=g.scroll_natural_direction)
+        nd_row = len(rows)
+        ttk.Checkbutton(
+            frame,
+            text="Natural scroll direction (reverses scroll sign)",
+            variable=self._natural_dir_var,
+        ).grid(row=nd_row, column=0, columnspan=3, sticky="w", pady=(8, 3))
+        frame.columnconfigure(2, weight=1)
+
+    def _apply(self) -> None:
+        """Write UI values into the live config and persist."""
+        g = self._config.gestures
+        c = self._config.cursor
+        try:
+            mv = self._mouse_vars
+            g.thumb_angle_target_deg = float(mv["Thumb angle target (°)"].get())  # type: ignore[no-untyped-call]
+            g.thumb_angle_tolerance_deg = float(mv["Thumb angle tolerance (°)"].get())  # type: ignore[no-untyped-call]
+            g.thumb_angle_hysteresis_deg = float(mv["Activation hysteresis (°)"].get())  # type: ignore[no-untyped-call]
+            g.use_thumb_angle_activation = bool(self._use_angle_var.get())
+            c.sensitivity = float(mv["Pointer sensitivity"].get())  # type: ignore[no-untyped-call]
+            c.smoothing_alpha = float(mv["Pointer smoothing (0–1)"].get())  # type: ignore[no-untyped-call]
+            c.dead_zone_px = int(mv["Pointer dead zone (px)"].get())  # type: ignore[no-untyped-call]
+
+            sv = self._scroll_vars
+            g.scroll_sensitivity = float(sv["Scroll sensitivity"].get())  # type: ignore[no-untyped-call]
+            g.scroll_dead_zone = float(sv["Scroll dead zone"].get())  # type: ignore[no-untyped-call]
+            g.scroll_units_per_step = int(sv["Units per step"].get())  # type: ignore[no-untyped-call]
+            g.scroll_natural_direction = bool(self._natural_dir_var.get())
+
+            # Clamp to safe ranges
+            g.thumb_angle_target_deg = max(0.0, min(180.0, g.thumb_angle_target_deg))
+            g.thumb_angle_tolerance_deg = max(1.0, min(45.0, g.thumb_angle_tolerance_deg))
+            g.thumb_angle_hysteresis_deg = max(0.0, min(30.0, g.thumb_angle_hysteresis_deg))
+            c.sensitivity = max(0.1, min(5.0, c.sensitivity))
+            c.smoothing_alpha = max(0.05, min(1.0, c.smoothing_alpha))
+            c.dead_zone_px = max(0, min(20, c.dead_zone_px))
+            g.scroll_sensitivity = max(0.1, min(10.0, g.scroll_sensitivity))
+            g.scroll_dead_zone = max(0.0, min(0.1, g.scroll_dead_zone))
+            g.scroll_units_per_step = max(1, min(20, g.scroll_units_per_step))
+
+            save_config(self._config, self._config_path)
+        except (ValueError, tk.TclError):
+            pass
+        self.close()
+
+    def _reset(self) -> None:
+        """Reload defaults into the UI widgets (does not persist until Apply)."""
+        from airpilot.config import CursorConfig, GestureConfig
+
+        dg = GestureConfig()
+        dc = CursorConfig()
+        mv = self._mouse_vars
+        mv["Thumb angle target (°)"].set(dg.thumb_angle_target_deg)
+        mv["Thumb angle tolerance (°)"].set(dg.thumb_angle_tolerance_deg)
+        mv["Activation hysteresis (°)"].set(dg.thumb_angle_hysteresis_deg)
+        mv["Pointer sensitivity"].set(dc.sensitivity)
+        mv["Pointer smoothing (0–1)"].set(dc.smoothing_alpha)
+        mv["Pointer dead zone (px)"].set(dc.dead_zone_px)
+        self._use_angle_var.set(dg.use_thumb_angle_activation)
+
+        sv = self._scroll_vars
+        sv["Scroll sensitivity"].set(dg.scroll_sensitivity)
+        sv["Scroll dead zone"].set(dg.scroll_dead_zone)
+        sv["Units per step"].set(dg.scroll_units_per_step)
+        self._natural_dir_var.set(dg.scroll_natural_direction)
 
 
 class _TkHelpBackend:
@@ -810,7 +1086,7 @@ class _TkHelpBackend:
             padx=10,
             pady=8,
             yscrollcommand=scrollbar.set,
-            font=default_font,
+            font=("Consolas", 10) if sys.platform == "win32" else ("Courier", 10),
         )
         scrollbar.configure(command=self._text.yview)
         self._text.grid(row=0, column=0, sticky="nsew")
@@ -881,14 +1157,25 @@ def _help_lines(config: AppConfig) -> list[str]:
 
 def _help_sections(config: AppConfig) -> list[HelpSection]:
     lines = action_help_lines(config.actions, max_actions=None)
+    # Include angle config in the intro description
+    tgt = config.gestures.thumb_angle_target_deg
+    tol = config.gestures.thumb_angle_tolerance_deg
+    activation_note = (
+        f"Thumb angle activation: target {tgt:.0f}\u00b0 \u00b1{tol:.0f}\u00b0 "
+        f"({tgt - tol:.0f}\u00b0\u2013{tgt + tol:.0f}\u00b0)."
+        if config.gestures.use_thumb_angle_activation
+        else "Thumb activation: score-based (classic mode)."
+    )
     sections = [
         HelpSection(
             "INTRO",
             (
                 "Most important controls are listed first. Keep AirPilot disarmed until the "
                 "preview and hand tracking look stable.",
-                "Open thumb: pointer moves with the palm/knuckle anchor.",
-                "Thumb folded: pointer frozen. Open thumb to resume.",
+                activation_note,
+                "Thumb in range: pointer moves with the palm/knuckle anchor.",
+                "Thumb out of range: pointer frozen. Return thumb to range to resume.",
+                "Press S to open Settings; H to toggle this Help window.",
             ),
         )
     ]
@@ -904,7 +1191,8 @@ def _help_sections(config: AppConfig) -> list[HelpSection]:
             current_lines = []
             continue
         if line == "What it does | Gesture | Shortcut/Keys | State":
-            current_lines.append("What it does    Gesture    Shortcut/Keys    State")
+            # Table header
+            current_lines.append(_format_help_header())
         else:
             current_lines.append(_format_help_row(line))
     if current_title is not None:
@@ -912,11 +1200,20 @@ def _help_sections(config: AppConfig) -> list[HelpSection]:
     return sections
 
 
+def _format_help_header() -> str:
+    """Format the table header row with clear column separators."""
+    return "  Action                    │ Gesture           │ Keys              │ State"
+
+
 def _format_help_row(line: str) -> str:
     parts = [part.strip() for part in line.split(" | ")]
     if len(parts) != 4:
         return line
-    return f"{parts[0]}: {parts[1]} ({parts[2]}; {parts[3]})"
+    action = parts[0][:25].ljust(25)
+    gesture = parts[1][:17].ljust(17)
+    keys = parts[2][:17].ljust(17)
+    state = parts[3]
+    return f"  {action}  │ {gesture}  │ {keys}  │ {state}"
 
 
 def _filter_help_sections(sections: Sequence[HelpSection], filter_text: str) -> list[HelpSection]:
@@ -1064,10 +1361,11 @@ class OverlayLine:
 def _layout_overlay(lines: Sequence[str], width: int) -> list[OverlayLine]:
     padded_width = max(width - 24, 40)
     layout: list[OverlayLine] = []
-    y = 30
+    y = 26
     for index, text in enumerate(lines):
-        scale = 0.72 if index == 0 else 0.52
-        line_height = 26 if index == 0 else 22
+        # Compact scales: headline=0.60, guidance=0.46, detail/controls=0.44
+        scale = 0.60 if index == 0 else 0.46 if index == 1 else 0.44
+        line_height = 24 if index == 0 else 20
         layout.append(
             OverlayLine(
                 text=_fit_text(text, padded_width, scale=scale),

@@ -5,7 +5,12 @@ from math import hypot
 
 from airpilot.config import GestureConfig
 from airpilot.domain.cursor import CursorMapper
-from airpilot.domain.pose import HandPose, estimate_hand_pose, stable_pointer_anchor
+from airpilot.domain.pose import (
+    HandPose,
+    estimate_hand_pose,
+    stable_pointer_anchor,
+    thumb_index_angle_deg,
+)
 from airpilot.domain.types import (
     CursorPosition,
     GestureEvents,
@@ -84,7 +89,7 @@ class GestureEngine:
         )
         pointer_reference = _pointer_reference(hand)
         clutch_was_active = self._clutch_active
-        clutch_now = self._resolve_clutch(pose, pointer_reference)
+        clutch_now = self._resolve_clutch(pose, pointer_reference, hand)
         clutch_releasing = clutch_was_active and not clutch_now
         scroll_distance = _distance(hand, THUMB_TIP, RING_TIP)
 
@@ -367,16 +372,20 @@ class GestureEngine:
                     status="scrolling",
                 )
             delta = (reference.y - anchor) * self.config.scroll_sensitivity
+            # Apply dead zone: skip tiny jitter without advancing the anchor
+            if abs(reference.y - anchor) < self.config.scroll_dead_zone:
+                return replace(events, move=None, active_gesture="scrolling", status="scrolling")
             self._scroll.anchor_y = reference.y
             self._scroll.accumulated_y += delta
             steps = int(self._scroll.accumulated_y / self.config.scroll_activation_y_delta)
             if steps and timestamp_ms - self._scroll.last_emit_ms >= self.config.scroll_cooldown_ms:
                 self._scroll.accumulated_y -= steps * self.config.scroll_activation_y_delta
                 self._scroll.last_emit_ms = timestamp_ms
+                direction = 1 if self.config.scroll_natural_direction else -1
                 return replace(
                     events,
                     move=None,
-                    scroll=-steps * self.config.scroll_units_per_step,
+                    scroll=direction * steps * self.config.scroll_units_per_step,
                     active_gesture="scrolling",
                     status="scrolling",
                 )
@@ -450,10 +459,27 @@ class GestureEngine:
         self._click_anchor_position = None
         self._release_clutch()
 
-    def _resolve_clutch(self, pose: HandPose, pointer_reference: Landmark) -> bool:
+    def _resolve_clutch(
+        self, pose: HandPose, pointer_reference: Landmark, hand: HandLandmarks
+    ) -> bool:
         if not pose.confident:
             return self._clutch_active
-        clutch_now = not pose.thumb_open if self._clutch_active else pose.thumb_closed
+        if self.config.use_thumb_angle_activation:
+            angle = thumb_index_angle_deg(hand.landmarks)
+            if angle is None:
+                return self._clutch_active
+            # pointer_active = angle in range → clutch = NOT pointer_active
+            pointer_was_active = not self._clutch_active
+            pointer_active = _thumb_angle_in_range(
+                angle,
+                self.config.thumb_angle_target_deg,
+                self.config.thumb_angle_tolerance_deg,
+                self.config.thumb_angle_hysteresis_deg,
+                pointer_was_active,
+            )
+            clutch_now = not pointer_active
+        else:
+            clutch_now = not pose.thumb_open if self._clutch_active else pose.thumb_closed
         if clutch_now and not self._clutch_active:
             self._clutch_anchor_position = self.cursor_mapper.current or self.cursor_mapper.map(
                 pointer_reference
@@ -491,6 +517,32 @@ def _freeze_anchor(
     anchor: CursorPosition | None, fallback: CursorPosition | None
 ) -> CursorPosition | None:
     return anchor if anchor is not None else fallback
+
+
+def _thumb_angle_in_range(
+    angle_deg: float,
+    target: float,
+    tolerance: float,
+    hysteresis: float,
+    pointer_was_active: bool,
+) -> bool:
+    """Return True if thumb angle keeps (or enters) the pointer-active state.
+
+    *pointer_was_active* is True when the pointer was moving on the previous
+    frame (i.e. the clutch was NOT engaged).  When already active, the range
+    is widened by *hysteresis* on both sides to prevent jitter at the edge.
+    When inactive, the angle must enter the strict [target±tolerance] window.
+    """
+    if pointer_was_active:
+        low = target - tolerance - hysteresis
+        high = target + tolerance + hysteresis
+    else:
+        low = target - tolerance
+        high = target + tolerance
+    # Small epsilon guards against floating-point representation errors at the
+    # boundary (e.g. 80.000 is represented as 79.999999999...)
+    _EPS = 1e-9
+    return (low - _EPS) <= angle_deg <= (high + _EPS)
 
 
 def _hysteresis(active: bool, distance: float, threshold: float, release: float) -> bool:

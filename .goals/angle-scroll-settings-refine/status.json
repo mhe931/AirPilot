@@ -1,0 +1,10 @@
+{
+  "goal_id": "angle-scroll-settings-refine",
+  "status": "building",
+  "iteration": 1,
+  "builder_model": "Claude:Sonnet-4.6",
+  "inspector_model": "Claude:Haiku-4.5",
+  "initial_sha": "dd140e42584071f0eff5f9ddab1c619a160793f6",
+  "created_at": "2026-08-27T17:48:06.658+03:00",
+  "history": []
+}

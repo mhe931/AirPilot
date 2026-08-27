@@ -528,6 +528,8 @@
     "right_pinch_threshold": 0.065,
     "scroll_activation_y_delta": 0.012,
     "scroll_cooldown_ms": 35,
+    "scroll_dead_zone": 0.004,
+    "scroll_natural_direction": false,
     "scroll_pinch_release_threshold": 0.13,
     "scroll_pinch_threshold": 0.085,
     "scroll_sensitivity": 1.4,
@@ -538,9 +540,13 @@
     "task_view_mirror_x": true,
     "task_view_navigation_cooldown_ms": 300,
     "task_view_navigation_delta": 0.07,
+    "thumb_angle_hysteresis_deg": 0.0,
+    "thumb_angle_target_deg": 90.0,
+    "thumb_angle_tolerance_deg": 10.0,
     "thumb_close_threshold": 0.72,
     "thumb_open_threshold": 0.82,
-    "tracking_loss_grace_ms": 250
+    "tracking_loss_grace_ms": 250,
+    "use_thumb_angle_activation": true
   },
   "runtime": {
     "camera_index": 0,
@@ -557,5 +563,5 @@
     "tracker_detection_confidence": 0.55,
     "tracker_tracking_confidence": 0.55
   },
-  "schema_version": 9
+  "schema_version": 10
 }
