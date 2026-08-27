@@ -416,7 +416,7 @@ def test_mediapipe_handedness_matches_actual_orientation() -> None:
     assert tracking._mediapipe_handedness("unknown", input_is_mirrored=False) is Handedness.UNKNOWN
 
 
-def test_run_blocks_pointer_until_armed_then_restores_cursor_feedback(
+def test_run_blocks_pointer_until_armed_without_cursor_feedback_state(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     image = np.zeros((8, 8, 3), dtype=np.uint8)
@@ -485,24 +485,12 @@ def test_run_blocks_pointer_until_armed_then_restores_cursor_feedback(
         def virtual_desktop(self) -> VirtualDesktop:
             return VirtualDesktop(left=0, top=0, width=100, height=100)
 
-    class FakeCursorFeedback:
-        states: list[bool] = []
-        restored = False
-
-        def set_control_active(self, active: bool) -> None:
-            self.states.append(active)
-
-        def restore(self) -> None:
-            self.restored = True
-
     mouse = FakeMouse()
-    feedback = FakeCursorFeedback()
     keys = iter([ord("a"), ord("q")])
 
     monkeypatch.setattr(app, "OpenCVCamera", lambda *_args, **_kwargs: FakeCamera())
     monkeypatch.setattr(app, "MediaPipeHandTracker", lambda **_kwargs: FakeTracker())
     monkeypatch.setattr(app, "PyAutoGuiMouseController", lambda **_kwargs: mouse)
-    monkeypatch.setattr(app, "create_cursor_feedback", lambda: feedback)
     monkeypatch.setattr(app, "create_display_provider", lambda: FakeDisplayProvider())
     monkeypatch.setattr(app.pyautogui, "size", lambda: (100, 100))
     monkeypatch.setattr(app.cv2, "imshow", lambda *_args: None)
@@ -514,8 +502,6 @@ def test_run_blocks_pointer_until_armed_then_restores_cursor_feedback(
     assert app.run(config, show_preview=True) == 0
 
     assert mouse.actions == ["move:93,11"]
-    assert feedback.states == [False, True]
-    assert feedback.restored is True
 
 
 def test_run_releases_drag_on_quit(
@@ -528,8 +514,12 @@ def test_run_releases_drag_on_quit(
     points[12] = Landmark(0.50, 0.80)
     points[16] = Landmark(0.20, 0.80)
     points[20] = Landmark(0.80, 0.80)
+    points[12] = Landmark(0.50, 0.80)
+    points[16] = Landmark(0.20, 0.80)
+    points[20] = Landmark(0.80, 0.80)
     hand = HandLandmarks(tuple(points))
     moved_points = list(points)
+    moved_points[0] = Landmark(0.80, 0.50)
     moved_points[4] = Landmark(0.79, 0.50)
     moved_points[8] = Landmark(0.80, 0.50)
     moved_hand = HandLandmarks(tuple(moved_points))
@@ -561,9 +551,6 @@ def test_run_releases_drag_on_quit(
     mouse = __import__(
         "airpilot.input", fromlist=["RecordingMouseController"]
     ).RecordingMouseController()
-    feedback = __import__(
-        "airpilot.cursor_feedback", fromlist=["NoOpCursorFeedback"]
-    ).NoOpCursorFeedback()
     keys = iter([-1, ord("q")])
 
     class FakeDisplayProvider:
@@ -573,7 +560,6 @@ def test_run_releases_drag_on_quit(
     monkeypatch.setattr(app, "OpenCVCamera", lambda *_args, **_kwargs: FakeCamera())
     monkeypatch.setattr(app, "MediaPipeHandTracker", lambda **_kwargs: FakeTracker())
     monkeypatch.setattr(app, "PyAutoGuiMouseController", lambda **_kwargs: mouse)
-    monkeypatch.setattr(app, "create_cursor_feedback", lambda: feedback)
     monkeypatch.setattr(app, "create_display_provider", lambda: FakeDisplayProvider())
     monkeypatch.setattr(app.cv2, "imshow", lambda *_args: None)
     monkeypatch.setattr(app.cv2, "waitKey", lambda _delay: next(keys))
@@ -583,5 +569,66 @@ def test_run_releases_drag_on_quit(
     config.runtime.start_armed = True
 
     assert app.run(config, show_preview=True) == 0
+    assert "drag_start" in mouse.actions
+    assert mouse.actions[-1] == "drag_end"
+
+
+def test_run_releases_drag_on_exceptional_exit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    image = np.zeros((8, 8, 3), dtype=np.uint8)
+    points = [Landmark(0.5, 0.5) for _ in range(21)]
+    points[4] = Landmark(0.50, 0.50)
+    points[8] = Landmark(0.51, 0.50)
+    points[12] = Landmark(0.50, 0.80)
+    points[16] = Landmark(0.20, 0.80)
+    points[20] = Landmark(0.80, 0.80)
+    hand = HandLandmarks(tuple(points))
+    moved_points = list(points)
+    moved_points[0] = Landmark(0.80, 0.50)
+    moved_points[4] = Landmark(0.79, 0.50)
+    moved_points[8] = Landmark(0.80, 0.50)
+    moved_hand = HandLandmarks(tuple(moved_points))
+
+    class FakeCamera:
+        backend_name = "fake"
+        reconnect_count = 0
+
+        def frames(self) -> object:
+            yield CameraFrame(image=image.copy(), timestamp_ms=1)
+            yield CameraFrame(image=image.copy(), timestamp_ms=600)
+            raise RuntimeError("synthetic camera failure")
+
+        def close(self) -> None:
+            return None
+
+    class FakeTracker:
+        def track(self, _image: object, timestamp_ms: int) -> TrackingFrame:
+            tracked_hand = hand if timestamp_ms < 600 else moved_hand
+            return TrackingFrame(timestamp_ms=timestamp_ms, width=8, height=8, hand=tracked_hand)
+
+        def draw(self, image: object, _hand: HandLandmarks | None) -> object:
+            return image
+
+        def close(self) -> None:
+            return None
+
+    class FakeDisplayProvider:
+        def virtual_desktop(self) -> VirtualDesktop:
+            return VirtualDesktop(left=0, top=0, width=100, height=100)
+
+    mouse = __import__(
+        "airpilot.input", fromlist=["RecordingMouseController"]
+    ).RecordingMouseController()
+    monkeypatch.setattr(app, "OpenCVCamera", lambda *_args, **_kwargs: FakeCamera())
+    monkeypatch.setattr(app, "MediaPipeHandTracker", lambda **_kwargs: FakeTracker())
+    monkeypatch.setattr(app, "PyAutoGuiMouseController", lambda **_kwargs: mouse)
+    monkeypatch.setattr(app, "create_display_provider", lambda: FakeDisplayProvider())
+    monkeypatch.setattr(app.cv2, "destroyAllWindows", lambda: None)
+
+    config = AppConfig()
+    config.runtime.start_armed = True
+
+    assert app.run(config, show_preview=False) == 1
     assert "drag_start" in mouse.actions
     assert mouse.actions[-1] == "drag_end"

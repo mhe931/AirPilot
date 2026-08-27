@@ -539,7 +539,7 @@
     "task_view_navigation_cooldown_ms": 300,
     "task_view_navigation_delta": 0.07,
     "thumb_close_threshold": 0.72,
-    "thumb_open_threshold": 0.95,
+    "thumb_open_threshold": 0.82,
     "tracking_loss_grace_ms": 250
   },
   "runtime": {
@@ -557,5 +557,5 @@
     "tracker_detection_confidence": 0.55,
     "tracker_tracking_confidence": 0.55
   },
-  "schema_version": 8
+  "schema_version": 9
 }

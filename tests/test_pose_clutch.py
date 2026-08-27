@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from math import hypot
+from math import cos, hypot, sin
 
 from airpilot.config import CursorConfig, GestureConfig
 from airpilot.domain.cursor import CursorMapper
 from airpilot.domain.gestures import GestureEngine
 from airpilot.domain.pose import estimate_hand_pose
-from airpilot.domain.types import CursorPosition, HandLandmarks, Landmark, TrackingFrame
+from airpilot.domain.types import CursorPosition, Handedness, HandLandmarks, Landmark, TrackingFrame
 
 
 def test_pose_detects_thumb_and_finger_states_without_touching() -> None:
@@ -69,6 +69,18 @@ def test_pointer_reference_ignores_middle_bending() -> None:
     assert hand_moved.move.y > neutral.move.y + 20
 
 
+def test_thumb_open_permits_pointer_movement_with_index_and_middle_bent() -> None:
+    sut = engine()
+
+    start = sut.process(frame(0, pose_hand()))
+    bent = sut.process(frame(100, pose_hand(index_bent=True, middle_bent=True, offset=(0.20, 0.0))))
+
+    assert start.move is not None
+    assert bent.move is not None
+    assert bent.move.x > start.move.x + 30
+    assert bent.active_gesture == "tracking"
+
+
 def test_thumb_clutch_freezes_and_releases_pointer_without_jump() -> None:
     sut = engine()
 
@@ -87,6 +99,19 @@ def test_thumb_clutch_freezes_and_releases_pointer_without_jump() -> None:
     assert resumed_stationary.move == moving.move
     assert resumed_nudged.move is not None
     assert 0 < resumed_nudged.move.x - moving.move.x <= 8
+
+
+def test_thumb_folded_freezes_even_when_index_and_middle_are_straight() -> None:
+    sut = engine()
+
+    moving = sut.process(frame(0, pose_hand()))
+    folded = sut.process(frame(100, pose_hand(thumb_closed=True)))
+    moved = sut.process(frame(200, pose_hand(thumb_closed=True, offset=(0.25, 0.20))))
+
+    assert moving.move is not None
+    assert folded.move == moving.move
+    assert moved.move == moving.move
+    assert folded.active_gesture == "clutch"
 
 
 def test_post_clutch_resume_jump_is_bounded_after_large_hand_translation() -> None:
@@ -141,6 +166,28 @@ def test_clutch_middle_bend_right_and_middle_click_are_distinct() -> None:
     result = middle.process(frame(750, pose_hand(thumb_closed=True)))
     assert result.middle_click
     assert not result.right_click
+
+
+def test_thumb_detection_supports_left_and_right_hands() -> None:
+    right_open = _estimate(pose_hand(handedness=Handedness.RIGHT))
+    right_closed = _estimate(pose_hand(thumb_closed=True, handedness=Handedness.RIGHT))
+    left_open = _estimate(pose_hand(handedness=Handedness.LEFT, mirror=True))
+    left_closed = _estimate(pose_hand(thumb_closed=True, handedness=Handedness.LEFT, mirror=True))
+
+    assert right_open.thumb_open
+    assert not right_open.thumb_closed
+    assert right_closed.thumb_closed
+    assert left_open.thumb_open
+    assert not left_open.thumb_closed
+    assert left_closed.thumb_closed
+
+
+def test_thumb_detection_is_stable_under_in_plane_rotation() -> None:
+    open_pose = _estimate(pose_hand(rotation_degrees=28))
+    closed_pose = _estimate(pose_hand(thumb_closed=True, rotation_degrees=-31))
+
+    assert open_pose.thumb_open
+    assert closed_pose.thumb_closed
 
 
 def test_clutch_drag_resumes_movement_after_deliberate_hold() -> None:
@@ -206,6 +253,9 @@ def pose_hand(
     index_tip: tuple[float, float] | None = None,
     scale: float = 1.0,
     offset: tuple[float, float] = (0.0, 0.0),
+    handedness: Handedness = Handedness.RIGHT,
+    mirror: bool = False,
+    rotation_degrees: float = 0.0,
 ) -> HandLandmarks:
     points = [Landmark(0.5, 0.5) for _ in range(21)]
     coords = {
@@ -232,12 +282,19 @@ def pose_hand(
         20: (0.72, 0.32),
     }
     center = (0.50, 0.55)
+    rotation = rotation_degrees * 3.141592653589793 / 180.0
     for index, (x, y) in coords.items():
+        if mirror:
+            x = center[0] - (x - center[0])
+        dx = (x - center[0]) * scale
+        dy = (y - center[1]) * scale
+        rotated_x = dx * cos(rotation) - dy * sin(rotation)
+        rotated_y = dx * sin(rotation) + dy * cos(rotation)
         points[index] = Landmark(
-            center[0] + (x - center[0]) * scale + offset[0],
-            center[1] + (y - center[1]) * scale + offset[1],
+            center[0] + rotated_x + offset[0],
+            center[1] + rotated_y + offset[1],
         )
-    return HandLandmarks(tuple(points))
+    return HandLandmarks(tuple(points), handedness=handedness)
 
 
 def _cursor_distance(first: CursorPosition, second: CursorPosition) -> float:

@@ -8,6 +8,8 @@ uv run --extra package pyinstaller `
   --paths src `
   --collect-all mediapipe `
   --collect-all cv2 `
+  --hidden-import tkinter `
+  --hidden-import tkinter.ttk `
   --hidden-import pyautogui `
   src/airpilot/app.py
 

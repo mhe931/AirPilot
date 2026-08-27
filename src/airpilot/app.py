@@ -3,16 +3,19 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import tkinter as tk
 import traceback
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from contextlib import suppress
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from time import perf_counter
-from typing import Protocol
+from tkinter import font as tkfont
+from tkinter import ttk
+from typing import Literal, Protocol
 
 import cv2
-import numpy as np
 import pyautogui
 from cv2.typing import MatLike
 
@@ -30,7 +33,6 @@ from airpilot.config import (
     read_config_schema_version,
     save_config,
 )
-from airpilot.cursor_feedback import CursorFeedbackController, create_cursor_feedback
 from airpilot.display import create_display_provider
 from airpilot.domain.cursor import CursorMapper
 from airpilot.domain.gestures import GestureEngine
@@ -188,7 +190,6 @@ def run(
 ) -> int:
     camera: OpenCVCamera | None = None
     tracker: MediaPipeHandTracker | None = None
-    cursor_feedback: CursorFeedbackController | None = None
     safety: MouseSafetyGate | None = None
     mouse: MouseController | None = None
     stats = TrackingStats()
@@ -224,7 +225,6 @@ def run(
         mouse = PyAutoGuiMouseController(
             emergency_corner_failsafe=config.runtime.emergency_corner_failsafe,
         )
-        cursor_feedback = create_cursor_feedback()
         safety = MouseSafetyGate(
             armed=(
                 config.runtime.enable_real_mouse
@@ -285,12 +285,6 @@ def run(
                             file=sys.stderr,
                         )
                     failsafe_latched = True
-            cursor_feedback.set_control_active(
-                mouse_output_enabled
-                and safety.armed
-                and not events.paused
-                and frame.hand is not None
-            )
             stats.observe(frame, events)
 
             if show_preview:
@@ -393,8 +387,6 @@ def run(
             tracker.close()
         if safety is not None and mouse is not None:
             safety.disarm(mouse)
-        if cursor_feedback is not None:
-            cursor_feedback.restore()
         if "help_window" in locals():
             help_window.close()
         cv2.destroyAllWindows()
@@ -642,7 +634,7 @@ def _headline_text(
         elif events.active_gesture == "click_candidate":
             guidance = "CLICK LOCK - release to click, move farther to drag"
         elif events.active_gesture == "clutch":
-            guidance = "CLUTCH - pointer frozen, bend index or middle"
+            guidance = "Thumb folded: pointer frozen. Open thumb to resume."
         else:
             guidance = "Mouse control enabled"
     else:
@@ -663,101 +655,327 @@ def _controls_text(config: AppConfig, *, mouse_output_locked: bool = False) -> s
 
 
 @dataclass(slots=True)
+class HelpBounds:
+    left: int
+    top: int
+    width: int
+    height: int
+
+
+@dataclass(frozen=True, slots=True)
+class HelpSection:
+    title: str
+    lines: tuple[str, ...]
+
+
+class HelpBackend(Protocol):
+    def update(self, config: AppConfig) -> None: ...
+
+    def close(self) -> None: ...
+
+    def is_open(self) -> bool: ...
+
+
+def _default_help_backend_factory() -> HelpBackend:
+    return _TkHelpBackend()
+
+
+@dataclass(slots=True)
 class HelpWindow:
     visible: bool = False
     title: str = "AirPilot Help"
-    _created: bool = False
+    backend_factory: Callable[[], HelpBackend] = _default_help_backend_factory
+    _backend: HelpBackend | None = None
 
     def toggle(self) -> bool:
         self.visible = not self.visible
         if not self.visible:
-            self._destroy()
+            self.close()
         else:
-            self._created = False
+            self._backend = None
         return self.visible
 
     def update(self, config: AppConfig) -> None:
         if not self.visible:
             return
-        if self._created and not self._window_is_open():
+        if self._backend is not None and not self._backend.is_open():
             self.visible = False
-            self._created = False
+            self._backend = None
             return
-        cv2.imshow(self.title, _help_image(_help_lines(config)))
-        self._created = True
+        if self._backend is None:
+            self._backend = self.backend_factory()
+        self._backend.update(config)
+        if not self._backend.is_open():
+            self.visible = False
+            self._backend = None
 
     def close(self) -> None:
-        if self.visible or self._created:
-            self._destroy()
-            self.visible = False
-            self._created = False
+        if self._backend is not None:
+            self._backend.close()
+        self.visible = False
+        self._backend = None
 
-    def _window_is_open(self) -> bool:
-        try:
-            visible = cv2.getWindowProperty(self.title, cv2.WND_PROP_VISIBLE)
-        except cv2.error:
+
+class _TkHelpBackend:
+    def __init__(self) -> None:
+        self._root: tk.Tk | None = None
+        self._window: tk.Toplevel | None = None
+        self._text: tk.Text | None = None
+        self._search_var: tk.StringVar | None = None
+        self._category_list: tk.Listbox | None = None
+        self._signature: str | None = None
+
+    def update(self, config: AppConfig) -> None:
+        if not self.is_open():
+            self._create_window()
+        signature = json.dumps(action_help_lines(config.actions, max_actions=None), sort_keys=True)
+        filter_text = self._search_var.get().strip().lower() if self._search_var else ""
+        signature = f"{signature}\nfilter={filter_text}"
+        if signature != self._signature:
+            self._populate(config)
+            self._signature = signature
+        self._pump()
+
+    def close(self) -> None:
+        if self._window is not None:
+            with suppress(tk.TclError):
+                self._window.destroy()
+        if self._root is not None:
+            with suppress(tk.TclError):
+                self._root.destroy()
+        self._window = None
+        self._root = None
+        self._text = None
+        self._search_var = None
+        self._category_list = None
+        self._signature = None
+
+    def is_open(self) -> bool:
+        if self._window is None:
             return False
-        return visible >= 1
-
-    def _destroy(self) -> None:
         try:
-            cv2.destroyWindow(self.title)
-        except cv2.error:
+            return bool(self._window.winfo_exists())
+        except tk.TclError:
+            return False
+
+    def _create_window(self) -> None:
+        self._root = tk.Tk()
+        self._root.withdraw()
+        self._window = tk.Toplevel(self._root)
+        self._window.title("AirPilot Help")
+        self._window.minsize(640, 420)
+        bounds = _help_initial_bounds(_screen_work_area(self._window))
+        self._window.geometry(f"{bounds.width}x{bounds.height}+{bounds.left}+{bounds.top}")
+        self._window.protocol("WM_DELETE_WINDOW", self.close)
+
+        default_font = tkfont.nametofont("TkDefaultFont")
+        heading_font = default_font.copy()
+        heading_font.configure(size=max(default_font.cget("size") + 3, 12), weight="bold")
+
+        main = ttk.Frame(self._window, padding=12)
+        main.grid(row=0, column=0, sticky="nsew")
+        self._window.columnconfigure(0, weight=1)
+        self._window.rowconfigure(0, weight=1)
+        main.columnconfigure(1, weight=1)
+        main.rowconfigure(2, weight=1)
+
+        title = ttk.Label(main, text="AirPilot Help", font=heading_font)
+        title.grid(row=0, column=0, columnspan=3, sticky="w")
+        intro = ttk.Label(
+            main,
+            text=(
+                "Use AirPilot safely: arm deliberately, move with an open thumb, "
+                "fold the thumb to freeze, and keep risky actions disabled until tested."
+            ),
+            wraplength=max(bounds.width - 80, 480),
+        )
+        intro.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(4, 10))
+
+        self._category_list = tk.Listbox(
+            main, activestyle="dotbox", exportselection=False, width=20
+        )
+        self._category_list.grid(row=2, column=0, sticky="ns", padx=(0, 10))
+        self._category_list.bind("<<ListboxSelect>>", self._jump_to_category)
+
+        text_frame = ttk.Frame(main)
+        text_frame.grid(row=2, column=1, columnspan=2, sticky="nsew")
+        text_frame.columnconfigure(0, weight=1)
+        text_frame.rowconfigure(0, weight=1)
+        scrollbar = ttk.Scrollbar(text_frame, orient="vertical")
+        self._text = tk.Text(
+            text_frame,
+            wrap=_help_text_wrap_mode(),
+            borderwidth=1,
+            relief="solid",
+            padx=10,
+            pady=8,
+            yscrollcommand=scrollbar.set,
+            font=default_font,
+        )
+        scrollbar.configure(command=self._text.yview)
+        self._text.grid(row=0, column=0, sticky="nsew")
+        scrollbar.grid(row=0, column=1, sticky="ns")
+        self._text.tag_configure("section", font=heading_font, spacing1=8, spacing3=4)
+        self._text.tag_configure("intro", spacing3=8)
+        self._text.configure(state="disabled")
+
+        ttk.Label(main, text="Filter").grid(row=3, column=0, sticky="w", pady=(10, 0))
+        self._search_var = tk.StringVar()
+        search = ttk.Entry(main, textvariable=self._search_var)
+        search.grid(row=3, column=1, sticky="ew", pady=(10, 0))
+        search.bind("<KeyRelease>", self._on_search_changed)
+        ttk.Button(main, text="Close", command=self.close).grid(
+            row=3,
+            column=2,
+            sticky="e",
+            padx=(10, 0),
+            pady=(10, 0),
+        )
+
+    def _populate(self, config: AppConfig) -> None:
+        if self._text is None or self._category_list is None:
             return
-        self._created = False
+        filter_text = self._search_var.get().strip().lower() if self._search_var else ""
+        sections = _filter_help_sections(_help_sections(config), filter_text)
+        self._category_list.delete(0, tk.END)
+        self._text.configure(state="normal")
+        self._text.delete("1.0", tk.END)
+        for section in sections:
+            self._category_list.insert(tk.END, section.title.title())
+            tag_name = f"section_{section.title}"
+            self._text.insert(tk.END, f"{section.title.title()}\n", ("section", tag_name))
+            for line in section.lines:
+                self._text.insert(
+                    tk.END, f"{line}\n", ("intro",) if section.title == "INTRO" else ()
+                )
+            self._text.insert(tk.END, "\n")
+        self._text.configure(state="disabled")
+
+    def _pump(self) -> None:
+        if self._root is None:
+            return
+        try:
+            self._root.update_idletasks()
+            self._root.update()
+        except tk.TclError:
+            self.close()
+
+    def _jump_to_category(self, _event: tk.Event[tk.Listbox]) -> None:
+        if self._category_list is None or self._text is None:
+            return
+        selection = self._category_list.curselection()  # type: ignore[no-untyped-call]
+        if not selection:
+            return
+        title = self._category_list.get(selection[0]).upper()
+        location = self._text.search(title.title(), "1.0", tk.END)
+        if location:
+            self._text.see(location)
+
+    def _on_search_changed(self, _event: tk.Event[ttk.Entry]) -> None:
+        self._signature = None
 
 
 def _help_lines(config: AppConfig) -> list[str]:
-    return ["AirPilot Help", ""] + action_help_lines(config.actions, max_actions=12)
+    return ["AirPilot Help", ""] + action_help_lines(config.actions, max_actions=None)
 
 
-def _help_image(lines: Sequence[str]) -> MatLike:
-    if len(lines) > 90:
-        width = 2200
-        line_height = 16
-        column_count = 5
-    elif len(lines) > 72:
-        width = 1760
-        line_height = 18
-        column_count = 4
-    elif len(lines) > 48:
-        width = 1480
-        line_height = 20
-        column_count = 3
-    else:
-        width = 860
-        line_height = 20
-        column_count = 1
-    column_width = width // column_count
-    render_lines = _wrap_help_lines(lines, column_width - 32)
-    rows = (len(render_lines) + column_count - 1) // column_count
-    height = max(320, 42 + line_height * rows)
-    image = np.full((height, width, 3), 32, dtype=np.uint8)
-    for index, line in enumerate(render_lines):
-        column = index // rows
-        row = index % rows
-        x = 16 + column * column_width
-        y = 36 + row * line_height
-        scale = 0.75 if index == 0 else 0.55
-        color = (255, 255, 255) if line else (180, 180, 180)
-        if (
-            line.isupper()
-            or line in {"Mouse", "Control"}
-            or line.startswith("Shortcut mode")
-            or line.startswith("Risky")
-        ):
-            color = (120, 220, 255)
-        cv2.putText(
-            image,
-            _fit_text(line, column_width - 32, scale=scale),
-            (x, y),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            scale,
-            color,
-            2 if index == 0 else 1,
-            cv2.LINE_AA,
+def _help_sections(config: AppConfig) -> list[HelpSection]:
+    lines = action_help_lines(config.actions, max_actions=None)
+    sections = [
+        HelpSection(
+            "INTRO",
+            (
+                "Most important controls are listed first. Keep AirPilot disarmed until the "
+                "preview and hand tracking look stable.",
+                "Open thumb: pointer moves with the palm/knuckle anchor.",
+                "Thumb folded: pointer frozen. Open thumb to resume.",
+            ),
         )
-    return image
+    ]
+    current_title: str | None = None
+    current_lines: list[str] = []
+    for line in lines:
+        if not line:
+            continue
+        if line.isupper():
+            if current_title is not None:
+                sections.append(HelpSection(current_title, tuple(current_lines)))
+            current_title = line
+            current_lines = []
+            continue
+        if line == "What it does | Gesture | Shortcut/Keys | State":
+            current_lines.append("What it does    Gesture    Shortcut/Keys    State")
+        else:
+            current_lines.append(_format_help_row(line))
+    if current_title is not None:
+        sections.append(HelpSection(current_title, tuple(current_lines)))
+    return sections
+
+
+def _format_help_row(line: str) -> str:
+    parts = [part.strip() for part in line.split(" | ")]
+    if len(parts) != 4:
+        return line
+    return f"{parts[0]}: {parts[1]} ({parts[2]}; {parts[3]})"
+
+
+def _filter_help_sections(sections: Sequence[HelpSection], filter_text: str) -> list[HelpSection]:
+    if not filter_text:
+        return list(sections)
+    filtered: list[HelpSection] = []
+    for section in sections:
+        matching_lines = tuple(line for line in section.lines if filter_text in line.lower())
+        if filter_text in section.title.lower() or matching_lines:
+            filtered.append(HelpSection(section.title, matching_lines or section.lines))
+    return filtered
+
+
+def _help_text_wrap_mode() -> Literal["word"]:
+    return "word"
+
+
+def _screen_work_area(window: tk.Toplevel) -> HelpBounds:
+    windows_area = _windows_work_area()
+    if windows_area is not None:
+        return windows_area
+    return HelpBounds(
+        left=0,
+        top=0,
+        width=max(int(window.winfo_screenwidth()), 1),
+        height=max(int(window.winfo_screenheight()), 1),
+    )
+
+
+def _windows_work_area() -> HelpBounds | None:
+    if sys.platform != "win32":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        rect = wintypes.RECT()
+        if not ctypes.windll.user32.SystemParametersInfoW(48, 0, ctypes.byref(rect), 0):
+            return None
+        width = int(rect.right - rect.left)
+        height = int(rect.bottom - rect.top)
+        if width <= 0 or height <= 0:
+            return None
+        return HelpBounds(int(rect.left), int(rect.top), width, height)
+    except (AttributeError, OSError, ValueError):
+        return None
+
+
+def _help_initial_bounds(work_area: HelpBounds, *, scale: float = 1.0) -> HelpBounds:
+    margin = max(int(48 * scale), 16)
+    min_width = min(640, max(work_area.width - margin, 320))
+    min_height = min(420, max(work_area.height - margin, 280))
+    preferred_width = int(980 * scale)
+    preferred_height = int(720 * scale)
+    width = min(max(preferred_width, min_width), max(work_area.width - margin, min_width))
+    height = min(max(preferred_height, min_height), max(work_area.height - margin, min_height))
+    left = work_area.left + max((work_area.width - width) // 2, 0)
+    top = work_area.top + max((work_area.height - height) // 2, 0)
+    return HelpBounds(left=left, top=top, width=width, height=height)
 
 
 def _wrap_help_lines(lines: Sequence[str], max_width: int) -> list[str]:

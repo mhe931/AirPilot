@@ -54,11 +54,12 @@ Pass:
 - Hold thumb-middle on the second hand until the overlay reports arming; overlay
   changes to `AIRPILOT - ACTIVE`. Restart and also verify pressing `a` still
   arms/disarms.
-- Press `h`; a separate gesture/action help window opens or closes without
-  blocking camera processing or clipping text. It should read like an
-  action-first dictionary with `What it does | Gesture | Shortcut/Keys | State`
-  rows grouped as Quick Start, Mouse, Control, Shortcut Mode, Windows/Apps,
-  Browser, Presentation, Media, and Risky.
+- Press `h`; a native-looking, resizable Help window opens inside the usable
+  monitor area. It should have normal Windows window controls, left-side
+  category navigation, a filter box, a close button, vertical scrolling, and
+  wrapped text without horizontal scrolling or clipped off-screen columns.
+  The most important enabled controls should appear first, followed by
+  configurable actions and risky disabled actions.
 - Hold thumb-index on the second hand; the same help window toggles only after a
   deliberate hold.
 - Move your hand right; the Windows pointer moves right. Move left/up/down; the
@@ -66,13 +67,17 @@ Pass:
 - Cursor reaches all four quadrants without leaving the control region.
 - Pointer response feels usable with the faster defaults and is not obviously
   slow or jumpy.
-- Windows cursor icon does not change globally while AirPilot is active; status
-  feedback stays in the preview and help UI.
-- Open the control-hand thumb; the pointer follows a stable palm/knuckle hand
-  anchor. Bend and release index/middle without otherwise moving your hand; the
-  pointer should not drift significantly.
-- Close/bend the thumb; the overlay reports clutch/freeze and moving the hand no
-  longer moves the pointer until the thumb opens again.
+- Enter and leave the AirPilot preview and Help windows. The Windows cursor uses
+  normal system/control behavior only; AirPilot must not show a custom cursor,
+  decorate the pointer, animate the pointer, or change the global cursor scheme.
+- Open/extend the control-hand thumb away from the palm; the pointer follows a
+  stable palm/knuckle hand anchor. Bend and release index/middle, both straight
+  and bent, without otherwise moving your hand; this must not freeze normal
+  pointer movement or pull the pointer away from the target.
+- Close/fold the thumb toward the palm; the overlay reports `Thumb folded:
+  pointer frozen. Open thumb to resume.` and moving the hand no longer moves the
+  pointer until the thumb opens again. Reopening the thumb should resume from the
+  frozen target without a jump.
 - While clutched, with five index bend/releases, exactly five left clicks occur
   at the frozen target; hand jitter should not drag the pointer off target while
   the click candidate is held.
