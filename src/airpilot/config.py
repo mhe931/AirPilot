@@ -486,6 +486,9 @@ class TextStyleConfig:
     # Settings window (Tkinter) – empty / 0 means use system default
     settings_font_family: str = ""
     settings_font_size: int = 0
+    # Window opacity (0.1–1.0; 1.0 = fully opaque)
+    help_opacity: float = 1.0
+    settings_opacity: float = 1.0
 
 
 def _text_style_from_section(raw: dict[str, Any]) -> TextStyleConfig:
@@ -502,6 +505,8 @@ def _text_style_from_section(raw: dict[str, Any]) -> TextStyleConfig:
         "help_font_size": defaults.help_font_size,
         "settings_font_family": defaults.settings_font_family,
         "settings_font_size": defaults.settings_font_size,
+        "help_opacity": defaults.help_opacity,
+        "settings_opacity": defaults.settings_opacity,
     }
     section.update({k: v for k, v in raw.items() if k in section})
     return TextStyleConfig(**section)

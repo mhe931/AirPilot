@@ -634,10 +634,12 @@
   "text_styles": {
     "help_font_family": "Consolas",
     "help_font_size": 10,
+    "help_opacity": 1.0,
     "overlay_fg": "#ffffff",
     "overlay_scale_pct": 100,
     "settings_font_family": "",
     "settings_font_size": 0,
+    "settings_opacity": 1.0,
     "sidebar_bg": "#141414",
     "sidebar_enabled": true,
     "sidebar_fg": "#e6e6e6",

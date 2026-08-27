@@ -369,3 +369,44 @@ def test_default_config_file_matches_dataclass_defaults() -> None:
     raw = json.loads(defaults_path.read_text(encoding="utf-8"))
 
     assert raw == json.loads(json.dumps(asdict(AppConfig())))
+
+
+def test_text_style_opacity_fields_have_sensible_defaults() -> None:
+    from airpilot.config import TextStyleConfig
+
+    ts = TextStyleConfig()
+    assert ts.help_opacity == 1.0, "Default help_opacity should be fully opaque"
+    assert ts.settings_opacity == 1.0, "Default settings_opacity should be fully opaque"
+
+
+def test_text_style_opacity_roundtrips_through_load_save(tmp_path: Path) -> None:
+    path = tmp_path / "opacity_test.json"
+    config = AppConfig()
+    config.text_styles.help_opacity = 0.8
+    config.text_styles.settings_opacity = 0.6
+    save_config(config, path)
+
+    loaded = load_config(path)
+    assert loaded.text_styles.help_opacity == 0.8
+    assert loaded.text_styles.settings_opacity == 0.6
+
+
+def test_text_style_migration_adds_opacity_defaults(tmp_path: Path) -> None:
+    """v11 config without opacity fields should gain defaults on load."""
+    path = tmp_path / "old_cfg.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 11,
+                "text_styles": {
+                    "overlay_scale_pct": 110,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    loaded = load_config(path)
+    assert loaded.text_styles.help_opacity == 1.0
+    assert loaded.text_styles.settings_opacity == 1.0
+    # Existing custom value should be retained
+    assert loaded.text_styles.overlay_scale_pct == 110

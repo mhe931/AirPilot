@@ -101,6 +101,7 @@ def _sidebar_lines(
 
     Lines are ASCII-safe because cv2.putText cannot render Unicode.
     Returns an empty list when the sidebar is disabled in text_styles.
+    Shows gesture name, mapped action, mode, and availability live.
     """
     if not config.text_styles.sidebar_enabled:
         return []
@@ -140,21 +141,33 @@ def _sidebar_lines(
     if gesture:
         lines.append(gesture)
 
-    # Available gestures (brief list)
+    # Gesture→action dashboard
     lines.append("---")
-    lines.append("thumb open: move")
-    lines.append("thumb fold: freeze")
-    lines.append("freeze+idx: click")
-    lines.append("freeze+mid: r-click")
-    lines.append("ring+wrist: scroll")
+    lines.append("[thumb open] move")
+    lines.append("[thumb fold] freeze")
+    lines.append("[pinch idx]  click")
+    lines.append("[pinch mid]  r-click")
+    lines.append("[ring+wrist] scroll")
+    lines.append("[arm gesture] arm")
+    lines.append("[help gesture] help")
     if events.shortcut_mode:
-        lines.append("idx: copy")
-        lines.append("mid: paste")
-        lines.append("mid hold: clipbrd")
-        lines.append("ring: next slide")
-        lines.append("pinky: prev slide")
+        lines.append("=SHORTCUT MODE=")
+        # Resolve configured shortcut actions
+        ga = config.actions.gesture_actions
+        _sc_label = config.actions.catalog
+
+        def _sc(key: str) -> str:
+            action_id = ga.get(key, "")
+            sc = _sc_label.get(action_id)
+            return sc.label[:10] if sc else action_id.split(".")[-1][:10]
+
+        lines.append(f"[idx]  {_sc('shortcut_index_release')}")
+        lines.append(f"[mid]  {_sc('shortcut_middle_release')}")
+        lines.append(f"[mid-h]{_sc('shortcut_middle_hold')}")
+        lines.append(f"[ring] {_sc('shortcut_ring_release')}")
+        lines.append(f"[pinky]{_sc('shortcut_pinky_release')}")
     else:
-        lines.append("2nd hand: shortcuts")
+        lines.append("[2nd hand] shortcuts")
     # Configurable bindings – show enabled ones
     for b in config.gesture_bindings:
         if b.enabled and b.action_id:
@@ -319,6 +332,7 @@ def run(
     exit_code = 0
     preview_created = False
     preview_visible_once = False
+    preview_maximize_disabled = False
     failsafe_latched = False
 
     try:
@@ -440,6 +454,9 @@ def run(
                 )
                 cv2.imshow(PREVIEW_WINDOW_TITLE, image)
                 preview_created = True
+                if not preview_maximize_disabled:
+                    _disable_cv2_window_maximize(PREVIEW_WINDOW_TITLE)
+                    preview_maximize_disabled = True
                 key_exit_reason, operator_notice = _handle_keypress(
                     cv2.waitKey(1),
                     config=config,
@@ -603,6 +620,14 @@ def _draw_status(
         paused=events.paused,
         mouse_output_locked=mouse_output_locked,
     )
+    # Compute the banner height so the sidebar starts below it.
+    if len(layout) >= 2:
+        banner_height = layout[1].y + 10
+    elif layout:
+        banner_height = layout[0].y + 10
+    else:
+        banner_height = 40
+    banner_height = min(max(banner_height, 32), int(image.shape[0]))
     # Detail lines (index 2+) drawn below the banner with shadow for contrast
     for line in layout[2:]:
         # Black shadow pass first
@@ -627,8 +652,8 @@ def _draw_status(
             1,
             cv2.LINE_AA,
         )
-    # Left-side contextual gesture/action sidebar
-    _draw_sidebar(image, frame, events, config, armed=armed)
+    # Left-side contextual gesture/action sidebar (starts below the banner)
+    _draw_sidebar(image, frame, events, config, armed=armed, top_offset=banner_height)
 
 
 def _draw_sidebar(
@@ -638,13 +663,15 @@ def _draw_sidebar(
     config: AppConfig,
     *,
     armed: bool,
+    top_offset: int = 0,
 ) -> None:
     """Draw a compact contextual gesture/action sidebar on the left edge.
 
     The sidebar lists available gestures and their current actions, updating
     live based on active mode, shortcut state, and gesture bindings.
     It uses a solid dark background strip so text is always readable even over
-    bright camera frames.
+    bright camera frames.  ``top_offset`` reserves the banner region so the
+    sidebar starts below the top status bar (no overlap).
     """
     lines = _sidebar_lines(frame, events, config, armed=armed)
     if not lines:
@@ -664,15 +691,15 @@ def _draw_sidebar(
         panel_width = max(panel_width, tw[0] + 2 * padding_x)
     panel_width = min(panel_width, int(image.shape[1] // 3))
 
-    # Draw background panel
+    # Draw background panel (starts at top_offset to avoid banner overlap)
     bg = _hex_to_bgr(config.text_styles.sidebar_bg)
-    cv2.rectangle(image, (0, 0), (panel_width, height), bg, thickness=-1)
+    cv2.rectangle(image, (0, top_offset), (panel_width, height), bg, thickness=-1)
 
     # Draw separator line
-    cv2.line(image, (panel_width, 0), (panel_width, height), (60, 60, 60), 1)
+    cv2.line(image, (panel_width, top_offset), (panel_width, height), (60, 60, 60), 1)
 
     fg = _hex_to_bgr(config.text_styles.sidebar_fg)
-    y = padding_y + line_height
+    y = top_offset + padding_y + line_height
     for idx, line in enumerate(lines):
         if y > height - padding_y:
             break
@@ -728,6 +755,30 @@ def _prepare_camera_image(image: MatLike, config: AppConfig) -> MatLike:
     if config.runtime.flip_camera_x:
         return cv2.flip(image, 1)
     return image
+
+
+def _disable_cv2_window_maximize(title: str) -> None:
+    """Remove the maximize button from a cv2 preview window on Windows.
+
+    Uses the Win32 ``GetWindowLongW`` / ``SetWindowLongW`` API to clear the
+    ``WS_MAXIMIZEBOX`` style so the title-bar button is hidden.  Silently
+    no-ops on non-Windows platforms or when the window cannot be found.
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        import ctypes.wintypes
+
+        hwnd = ctypes.windll.user32.FindWindowW(None, title)
+        if not hwnd:
+            return
+        GWL_STYLE = -16
+        WS_MAXIMIZEBOX = 0x00010000
+        style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_STYLE)
+        ctypes.windll.user32.SetWindowLongW(hwnd, GWL_STYLE, style & ~WS_MAXIMIZEBOX)
+    except (AttributeError, OSError):
+        pass
 
 
 def _normalized_key(key: int) -> str | None:
@@ -980,6 +1031,10 @@ class SettingsWindow:
         self._window.resizable(True, True)
         self._window.minsize(560, 440)
         self._window.protocol("WM_DELETE_WINDOW", self.close)
+        # Apply configured opacity (bounded 0.1–1.0)
+        opacity = max(0.1, min(1.0, self._config.text_styles.settings_opacity))
+        with suppress(tk.TclError):
+            self._window.attributes("-alpha", opacity)
         self._build_ui()
 
     def is_open(self) -> bool:
@@ -1206,6 +1261,22 @@ class SettingsWindow:
                 0,
                 24,
                 1,
+            ),
+            (
+                "Help opacity",
+                "Help window opacity (0.1–1.0; 1.0 = fully opaque)",
+                tk.DoubleVar(value=ts.help_opacity),
+                0.1,
+                1.0,
+                0.05,
+            ),
+            (
+                "Settings opacity",
+                "Settings window opacity (0.1–1.0; 1.0 = fully opaque)",
+                tk.DoubleVar(value=ts.settings_opacity),
+                0.1,
+                1.0,
+                0.05,
             ),
         ]
         for row_idx, (label, hint, var, lo, hi, inc) in enumerate(rows):
@@ -1529,6 +1600,10 @@ class SettingsWindow:
                 ts.help_font_family = str(tv["Help font family"].get()).strip()  # type: ignore[no-untyped-call]
                 ts.settings_font_family = str(tv["Settings font family"].get()).strip()  # type: ignore[no-untyped-call]
                 ts.sidebar_enabled = bool(self._sidebar_enabled_var.get())
+                if "Help opacity" in tv:
+                    ts.help_opacity = max(0.1, min(1.0, float(tv["Help opacity"].get())))  # type: ignore[no-untyped-call]
+                if "Settings opacity" in tv:
+                    ts.settings_opacity = max(0.1, min(1.0, float(tv["Settings opacity"].get())))  # type: ignore[no-untyped-call]
 
             save_config(self._config, self._config_path)
         except (ValueError, tk.TclError):
@@ -1576,20 +1651,31 @@ class SettingsWindow:
             tv["Help font family"].set(dt.help_font_family)
             tv["Settings font family"].set(dt.settings_font_family)
             self._sidebar_enabled_var.set(dt.sidebar_enabled)
+            if "Help opacity" in tv:
+                tv["Help opacity"].set(dt.help_opacity)
+            if "Settings opacity" in tv:
+                tv["Settings opacity"].set(dt.settings_opacity)
 
 
 class _TkHelpBackend:
     def __init__(self) -> None:
         self._root: tk.Tk | None = None
         self._window: tk.Toplevel | None = None
-        self._text: tk.Text | None = None
+        self._tree: ttk.Treeview | None = None
         self._search_var: tk.StringVar | None = None
         self._category_list: tk.Listbox | None = None
         self._signature: str | None = None
+        # Maps lowercase category title → Treeview item iid for jump
+        self._section_iids: dict[str, str] = {}
 
     def update(self, config: AppConfig) -> None:
         if not self.is_open():
-            self._create_window()
+            self._create_window(config)
+        # Apply opacity live
+        if self._window is not None:
+            opacity = max(0.1, min(1.0, config.text_styles.help_opacity))
+            with suppress(tk.TclError):
+                self._window.attributes("-alpha", opacity)
         signature = json.dumps(action_help_lines(config.actions, max_actions=None), sort_keys=True)
         filter_text = self._search_var.get().strip().lower() if self._search_var else ""
         signature = f"{signature}\nfilter={filter_text}"
@@ -1607,10 +1693,11 @@ class _TkHelpBackend:
                 self._root.destroy()
         self._window = None
         self._root = None
-        self._text = None
+        self._tree = None
         self._search_var = None
         self._category_list = None
         self._signature = None
+        self._section_iids = {}
 
     def is_open(self) -> bool:
         if self._window is None:
@@ -1620,7 +1707,7 @@ class _TkHelpBackend:
         except tk.TclError:
             return False
 
-    def _create_window(self) -> None:
+    def _create_window(self, config: AppConfig) -> None:
         self._root = tk.Tk()
         self._root.withdraw()
         self._window = tk.Toplevel(self._root)
@@ -1629,10 +1716,16 @@ class _TkHelpBackend:
         bounds = _help_initial_bounds(_screen_work_area(self._window))
         self._window.geometry(f"{bounds.width}x{bounds.height}+{bounds.left}+{bounds.top}")
         self._window.protocol("WM_DELETE_WINDOW", self.close)
+        # Apply initial opacity
+        opacity = max(0.1, min(1.0, config.text_styles.help_opacity))
+        with suppress(tk.TclError):
+            self._window.attributes("-alpha", opacity)
 
         default_font = tkfont.nametofont("TkDefaultFont")
         heading_font = default_font.copy()
         heading_font.configure(size=max(default_font.cget("size") + 3, 12), weight="bold")
+        section_font = default_font.copy()
+        section_font.configure(weight="bold")
 
         main = ttk.Frame(self._window, padding=12)
         main.grid(row=0, column=0, sticky="nsew")
@@ -1659,27 +1752,36 @@ class _TkHelpBackend:
         self._category_list.grid(row=2, column=0, sticky="ns", padx=(0, 10))
         self._category_list.bind("<<ListboxSelect>>", self._jump_to_category)
 
-        text_frame = ttk.Frame(main)
-        text_frame.grid(row=2, column=1, columnspan=2, sticky="nsew")
-        text_frame.columnconfigure(0, weight=1)
-        text_frame.rowconfigure(0, weight=1)
-        scrollbar = ttk.Scrollbar(text_frame, orient="vertical")
-        self._text = tk.Text(
-            text_frame,
-            wrap=_help_text_wrap_mode(),
-            borderwidth=1,
-            relief="solid",
-            padx=10,
-            pady=8,
-            yscrollcommand=scrollbar.set,
-            font=("Consolas", 10) if sys.platform == "win32" else ("Courier", 10),
+        tree_frame = ttk.Frame(main)
+        tree_frame.grid(row=2, column=1, columnspan=2, sticky="nsew")
+        tree_frame.columnconfigure(0, weight=1)
+        tree_frame.rowconfigure(0, weight=1)
+
+        tree_cols = ("action", "gesture", "keys", "state")
+        self._tree = ttk.Treeview(
+            tree_frame,
+            columns=tree_cols,
+            show="tree headings",
+            selectmode="none",
         )
-        scrollbar.configure(command=self._text.yview)
-        self._text.grid(row=0, column=0, sticky="nsew")
-        scrollbar.grid(row=0, column=1, sticky="ns")
-        self._text.tag_configure("section", font=heading_font, spacing1=8, spacing3=4)
-        self._text.tag_configure("intro", spacing3=8)
-        self._text.configure(state="disabled")
+        self._tree.heading("#0", text="✦", anchor="center")
+        self._tree.column("#0", width=32, stretch=False, anchor="center", minwidth=28)
+        self._tree.heading("action", text="Action")
+        self._tree.column("action", width=210, stretch=True, minwidth=120)
+        self._tree.heading("gesture", text="Gesture")
+        self._tree.column("gesture", width=180, stretch=True, minwidth=100)
+        self._tree.heading("keys", text="Keys / Shortcut")
+        self._tree.column("keys", width=140, stretch=True, minwidth=80)
+        self._tree.heading("state", text="State")
+        self._tree.column("state", width=80, stretch=False, minwidth=60)
+        self._tree.tag_configure("section", background="#d8e4f0", font=section_font)
+        self._tree.tag_configure("intro_row", foreground="#444444")
+        scrollbar_y = ttk.Scrollbar(tree_frame, orient="vertical", command=self._tree.yview)
+        scrollbar_x = ttk.Scrollbar(tree_frame, orient="horizontal", command=self._tree.xview)
+        self._tree.configure(yscrollcommand=scrollbar_y.set, xscrollcommand=scrollbar_x.set)
+        self._tree.grid(row=0, column=0, sticky="nsew")
+        scrollbar_y.grid(row=0, column=1, sticky="ns")
+        scrollbar_x.grid(row=1, column=0, sticky="ew")
 
         ttk.Label(main, text="Filter").grid(row=3, column=0, sticky="w", pady=(10, 0))
         self._search_var = tk.StringVar()
@@ -1695,23 +1797,59 @@ class _TkHelpBackend:
         )
 
     def _populate(self, config: AppConfig) -> None:
-        if self._text is None or self._category_list is None:
+        if self._tree is None or self._category_list is None:
             return
         filter_text = self._search_var.get().strip().lower() if self._search_var else ""
         sections = _filter_help_sections(_help_sections(config), filter_text)
+
+        # Clear existing content
+        self._tree.delete(*self._tree.get_children())
         self._category_list.delete(0, tk.END)
-        self._text.configure(state="normal")
-        self._text.delete("1.0", tk.END)
+        self._section_iids = {}
+
         for section in sections:
+            # Insert collapsible section heading row
+            sec_iid = self._tree.insert(
+                "",
+                "end",
+                text="",
+                values=(section.title.title(), "", "", ""),
+                tags=("section",),
+                open=True,
+            )
+            self._section_iids[section.title.lower()] = sec_iid
             self._category_list.insert(tk.END, section.title.title())
-            tag_name = f"section_{section.title}"
-            self._text.insert(tk.END, f"{section.title.title()}\n", ("section", tag_name))
+
+            header_text = _format_help_header()
             for line in section.lines:
-                self._text.insert(
-                    tk.END, f"{line}\n", ("intro",) if section.title == "INTRO" else ()
-                )
-            self._text.insert(tk.END, "\n")
-        self._text.configure(state="disabled")
+                if line == header_text:
+                    # Skip — column headers are shown by Treeview headings
+                    continue
+                if "│" in line:
+                    # Formatted row: "  emoji  │ action  │ gesture  │ keys  │ state"
+                    parts = [p.strip() for p in line.split("│")]
+                    if len(parts) >= 5:
+                        emoji = parts[0].strip()
+                        action = parts[1].strip()
+                        gesture = parts[2].strip()
+                        keys = parts[3].strip()
+                        state = parts[4].strip()
+                        self._tree.insert(
+                            sec_iid,
+                            "end",
+                            text=emoji,
+                            values=(action, gesture, keys, state),
+                        )
+                        continue
+                if line:
+                    # Intro / free-text line — span all columns
+                    self._tree.insert(
+                        sec_iid,
+                        "end",
+                        text="",
+                        values=(line, "", "", ""),
+                        tags=("intro_row",),
+                    )
 
     def _pump(self) -> None:
         if self._root is None:
@@ -1723,15 +1861,16 @@ class _TkHelpBackend:
             self.close()
 
     def _jump_to_category(self, _event: tk.Event[tk.Listbox]) -> None:
-        if self._category_list is None or self._text is None:
+        if self._category_list is None or self._tree is None:
             return
         selection = self._category_list.curselection()  # type: ignore[no-untyped-call]
         if not selection:
             return
-        title = self._category_list.get(selection[0]).upper()
-        location = self._text.search(title.title(), "1.0", tk.END)
-        if location:
-            self._text.see(location)
+        title = self._category_list.get(selection[0]).lower()
+        iid = self._section_iids.get(title)
+        if iid:
+            with suppress(tk.TclError):
+                self._tree.see(iid)
 
     def _on_search_changed(self, _event: tk.Event[ttk.Entry]) -> None:
         self._signature = None

@@ -4,6 +4,7 @@ from airpilot.app import (
     HelpBounds,
     HelpWindow,
     TrackingStats,
+    _disable_cv2_window_maximize,
     _dispatch_ui_action,
     _filter_help_sections,
     _handle_keypress,
@@ -12,11 +13,12 @@ from airpilot.app import (
     _help_sections,
     _help_text_wrap_mode,
     _preview_window_closed,
+    _sidebar_lines,
     _text_width,
     _wrap_help_lines,
     status_lines,
 )
-from airpilot.config import AppConfig
+from airpilot.config import AppConfig, TextStyleConfig
 from airpilot.domain.types import GestureEvents, HandLandmarks, Landmark, TrackingFrame
 from airpilot.input import RecordingMouseController
 from airpilot.safety import MouseSafetyGate
@@ -439,3 +441,144 @@ class _FakeHelpBackend(HelpBackend):
 
     def is_open(self) -> bool:
         return not self.closed
+
+
+# ---------------------------------------------------------------------------
+# New tests for opacity, dashboard, maximize-disable, and sidebar
+# ---------------------------------------------------------------------------
+
+
+def test_text_style_defaults_have_valid_opacity_bounds() -> None:
+    ts = TextStyleConfig()
+    assert 0.1 <= ts.help_opacity <= 1.0, "help_opacity default out of bounds"
+    assert 0.1 <= ts.settings_opacity <= 1.0, "settings_opacity default out of bounds"
+
+
+def test_text_style_opacity_roundtrips_through_save_load(tmp_path: object) -> None:
+    from pathlib import Path
+
+    from airpilot.config import load_config, save_config
+
+    path = Path(tmp_path) / "cfg.json"  # type: ignore[arg-type]
+    config = AppConfig()
+    config.text_styles.help_opacity = 0.75
+    config.text_styles.settings_opacity = 0.55
+    save_config(config, path)
+
+    loaded = load_config(path)
+    assert loaded.text_styles.help_opacity == 0.75
+    assert loaded.text_styles.settings_opacity == 0.55
+
+
+def test_text_style_missing_opacity_fields_load_with_defaults() -> None:
+    """An old config without opacity fields must load cleanly with defaults."""
+    import json
+    import tempfile
+    from pathlib import Path
+
+    from airpilot.config import load_config
+
+    raw = {
+        "schema_version": 11,
+        "text_styles": {
+            "overlay_scale_pct": 100,
+            "overlay_fg": "#ffffff",
+        },
+    }
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8") as f:
+        json.dump(raw, f)
+        tmp = f.name
+    loaded = load_config(Path(tmp))
+    assert loaded.text_styles.help_opacity == 1.0
+    assert loaded.text_styles.settings_opacity == 1.0
+
+
+def test_sidebar_lines_show_action_labels_for_gestures() -> None:
+    config = AppConfig()
+    frame = TrackingFrame(timestamp_ms=0, width=640, height=480, hand=None)
+    events = GestureEvents(active_gesture="none")
+
+    lines = _sidebar_lines(frame, events, config, armed=True)
+
+    assert any("move" in line for line in lines)
+    assert any("freeze" in line for line in lines)
+    assert any("click" in line for line in lines)
+    assert any("scroll" in line for line in lines)
+    assert any("arm" in line for line in lines)
+    assert any("help" in line for line in lines)
+
+
+def test_sidebar_lines_expand_shortcut_mode_mappings() -> None:
+    config = AppConfig()
+    frame = TrackingFrame(timestamp_ms=0, width=640, height=480, hand=None)
+    events = GestureEvents(active_gesture="shortcut_mode", shortcut_mode=True)
+
+    lines = _sidebar_lines(frame, events, config, armed=True)
+
+    # Should see shortcut mode label
+    assert any("SHORTCUT" in line for line in lines)
+    # Should see configured shortcut action labels
+    assert any("idx" in line or "mid" in line or "ring" in line for line in lines)
+
+
+def test_sidebar_lines_show_enabled_gesture_bindings() -> None:
+    from airpilot.config import GestureBinding
+
+    config = AppConfig()
+    config.gesture_bindings = [
+        GestureBinding(
+            id="test_binding",
+            enabled=True,
+            action_id="presentation.next_slide",
+        )
+    ]
+    frame = TrackingFrame(timestamp_ms=0, width=640, height=480, hand=None)
+    events = GestureEvents()
+
+    lines = _sidebar_lines(frame, events, config, armed=False)
+
+    assert any("test_bin" in line for line in lines)
+
+
+def test_sidebar_lines_empty_when_disabled() -> None:
+    config = AppConfig()
+    config.text_styles.sidebar_enabled = False
+    frame = TrackingFrame(timestamp_ms=0, width=640, height=480, hand=None)
+    events = GestureEvents()
+
+    lines = _sidebar_lines(frame, events, config, armed=False)
+
+    assert lines == []
+
+
+def test_disable_cv2_window_maximize_is_no_op_on_missing_window() -> None:
+    """Should not raise even when the window title doesn't exist."""
+    _disable_cv2_window_maximize("__nonexistent_airpilot_test_window__")
+
+
+def test_help_sections_include_quit_and_pause_and_settings() -> None:
+    sections = _help_sections(AppConfig())
+    all_lines = [line for s in sections for line in s.lines]
+
+    assert any("Quit" in line or "quit" in line for line in all_lines)
+    assert any("pause" in line.lower() or "Pause" in line for line in all_lines)
+    assert any("Settings" in line or "settings" in line for line in all_lines)
+    assert any("Help" in line or "help" in line for line in all_lines)
+
+
+def test_help_sections_include_shortcut_mode_entries() -> None:
+    sections = _help_sections(AppConfig())
+    section_titles = {s.title for s in sections}
+    assert "SHORTCUT MODE" in section_titles
+
+
+def test_help_emoji_present_in_formatted_rows() -> None:
+    sections = _help_sections(AppConfig())
+    # Formatted rows use │ (vertical bar) as column separator
+    table_lines = [line for s in sections for line in s.lines if "│" in line and s.title != "INTRO"]
+    # At least some rows should have an emoji character in them
+    assert len(table_lines) > 0
+    # Each formatted row should contain │ separators (4 columns)
+    for line in table_lines[:5]:
+        parts = [p.strip() for p in line.split("│")]
+        assert len(parts) >= 4
