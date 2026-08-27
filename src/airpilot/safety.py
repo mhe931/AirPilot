@@ -20,8 +20,11 @@ class MouseSafetyGate:
         if self._drag_pressed and mouse is not None:
             mouse.drag_end()
             self._drag_pressed = False
+            mouse.release_all_keys()
             return True
         self._drag_pressed = False
+        if mouse is not None:
+            mouse.release_all_keys()
         return False
 
     def apply(self, mouse: MouseController, events: GestureEvents) -> bool:

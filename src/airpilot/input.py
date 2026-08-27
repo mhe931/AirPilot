@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import suppress
 from ctypes import Structure, byref, c_long
 from dataclasses import dataclass, field
 from typing import Protocol
@@ -32,6 +33,8 @@ class MouseController(Protocol):
     def scroll(self, units: int) -> None: ...
 
     def hotkey(self, keys: tuple[str, ...]) -> None: ...
+
+    def release_all_keys(self) -> None: ...
 
     def emergency_stop_requested(self) -> bool: ...
 
@@ -73,7 +76,30 @@ class PyAutoGuiMouseController:
         pyautogui.scroll(units)
 
     def hotkey(self, keys: tuple[str, ...]) -> None:
-        pyautogui.hotkey(*keys)
+        """Press and release a hotkey combination.
+
+        Uses explicit keyDown/keyUp with a try/finally so that all pressed keys
+        are released even if an exception is raised mid-combination.
+        """
+        pressed: list[str] = []
+        try:
+            for key in keys:
+                pyautogui.keyDown(key)
+                pressed.append(key)
+            for key in reversed(pressed):
+                pyautogui.keyUp(key)
+                pressed.pop()
+        except Exception:
+            for key in reversed(pressed):
+                with suppress(Exception):
+                    pyautogui.keyUp(key)
+            raise
+
+    def release_all_keys(self) -> None:
+        """No-op: the hotkey() implementation ensures keys are released on completion.
+
+        Provided for protocol compatibility with mock/fake controllers.
+        """
 
     def emergency_stop_requested(self) -> bool:
         return self._emergency_corner_failsafe and self._is_failsafe_position(
@@ -132,6 +158,9 @@ class RecordingMouseController:
 
     def hotkey(self, keys: tuple[str, ...]) -> None:
         self.actions.append(f"hotkey:{'+'.join(keys)}")
+
+    def release_all_keys(self) -> None:
+        self.actions.append("release_all_keys")
 
     def emergency_stop_requested(self) -> bool:
         return False

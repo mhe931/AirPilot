@@ -60,6 +60,9 @@ def test_run_disables_preview_landmarks_after_draw_failure(
         def emergency_stop_requested(self) -> bool:
             return False
 
+        def release_all_keys(self) -> None:
+            pass
+
     monkeypatch.setattr(app, "OpenCVCamera", lambda *_args, **_kwargs: FakeCamera())
     monkeypatch.setattr(app, "MediaPipeHandTracker", lambda **_kwargs: FakeTracker())
     monkeypatch.setattr(app, "PyAutoGuiMouseController", lambda **_kwargs: FakeMouse())
@@ -103,6 +106,9 @@ def test_run_survives_transient_tracker_failure(
     class FakeMouse:
         def emergency_stop_requested(self) -> bool:
             return False
+
+        def release_all_keys(self) -> None:
+            pass
 
     class FakeDisplayProvider:
         def virtual_desktop(self) -> VirtualDesktop:
@@ -156,6 +162,9 @@ def test_run_processes_long_synthetic_soak_without_termination(
     class FakeMouse:
         def emergency_stop_requested(self) -> bool:
             return False
+
+        def release_all_keys(self) -> None:
+            pass
 
     class FakeDisplayProvider:
         def virtual_desktop(self) -> VirtualDesktop:
@@ -222,6 +231,9 @@ def test_run_latches_repeated_failsafe_corner_warning(
         def emergency_stop_requested(self) -> bool:
             return next(self.states)
 
+        def release_all_keys(self) -> None:
+            pass
+
     class FakeDisplayProvider:
         def virtual_desktop(self) -> VirtualDesktop:
             return VirtualDesktop(left=0, top=0, width=100, height=100)
@@ -278,6 +290,9 @@ def test_handle_keypress_accepts_uppercase_arm_toggle() -> None:
         def emergency_stop_requested(self) -> bool:
             return False
 
+        def release_all_keys(self) -> None:
+            pass
+
     config = AppConfig()
     safety = app.MouseSafetyGate(armed=False)
 
@@ -320,6 +335,9 @@ def test_handle_keypress_reports_preview_only_arming_failure() -> None:
 
         def emergency_stop_requested(self) -> bool:
             return False
+
+        def release_all_keys(self) -> None:
+            pass
 
     config = AppConfig()
     config.runtime.enable_real_mouse = False
@@ -365,6 +383,9 @@ def test_handle_keypress_enables_loaded_preview_only_config() -> None:
 
         def emergency_stop_requested(self) -> bool:
             return False
+
+        def release_all_keys(self) -> None:
+            pass
 
     config = AppConfig()
     config.runtime.enable_real_mouse = False
@@ -481,6 +502,9 @@ def test_run_blocks_pointer_until_armed_without_cursor_feedback_state(
         def emergency_stop_requested(self) -> bool:
             return False
 
+        def release_all_keys(self) -> None:
+            pass
+
     class FakeDisplayProvider:
         def virtual_desktop(self) -> VirtualDesktop:
             return VirtualDesktop(left=0, top=0, width=100, height=100)
@@ -570,7 +594,8 @@ def test_run_releases_drag_on_quit(
 
     assert app.run(config, show_preview=True) == 0
     assert "drag_start" in mouse.actions
-    assert mouse.actions[-1] == "drag_end"
+    assert "drag_end" in mouse.actions
+    assert "release_all_keys" in mouse.actions
 
 
 def test_run_releases_drag_on_exceptional_exit(
@@ -631,4 +656,5 @@ def test_run_releases_drag_on_exceptional_exit(
 
     assert app.run(config, show_preview=False) == 1
     assert "drag_start" in mouse.actions
-    assert mouse.actions[-1] == "drag_end"
+    assert "drag_end" in mouse.actions
+    assert "release_all_keys" in mouse.actions
