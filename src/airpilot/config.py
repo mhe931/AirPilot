@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-CURRENT_SCHEMA_VERSION = 7
+CURRENT_SCHEMA_VERSION = 8
 
 _V4_CURSOR_DEFAULTS = {
     "camera_min_x": 0.08,
@@ -61,6 +61,10 @@ class GestureConfig:
     drag_hold_ms: int = 450
     pause_hold_ms: int = 850
     tracking_loss_grace_ms: int = 250
+    thumb_close_threshold: float = 0.72
+    thumb_open_threshold: float = 0.95
+    finger_bend_threshold: float = 1.35
+    finger_extend_threshold: float = 1.70
 
 
 @dataclass(slots=True)
@@ -288,6 +292,8 @@ def _config_from_dict(raw: dict[str, Any]) -> AppConfig:
         return _migrate_v5_config(raw)
     if version == 6:
         return _migrate_v6_config(raw)
+    if version == 7:
+        return _migrate_v7_config(raw)
     if version != CURRENT_SCHEMA_VERSION:
         raise ValueError(f"Unsupported AirPilot config schema_version {version!r}")
     return AppConfig(
@@ -382,6 +388,10 @@ def _gestures_from_section(raw: dict[str, Any]) -> GestureConfig:
         "drag_hold_ms": defaults.drag_hold_ms,
         "pause_hold_ms": defaults.pause_hold_ms,
         "tracking_loss_grace_ms": defaults.tracking_loss_grace_ms,
+        "thumb_close_threshold": defaults.thumb_close_threshold,
+        "thumb_open_threshold": defaults.thumb_open_threshold,
+        "finger_bend_threshold": defaults.finger_bend_threshold,
+        "finger_extend_threshold": defaults.finger_extend_threshold,
     }
     section.update(raw)
     return GestureConfig(**section)
@@ -415,6 +425,16 @@ def _migrate_v6_config(raw: dict[str, Any]) -> AppConfig:
         gestures=_gestures_from_section(_section(raw, "gestures")),
         cursor=CursorConfig(**_section(raw, "cursor")),
         actions=_actions_from_section(_migrated_v7_actions(_section(raw, "actions"))),
+        runtime=RuntimeConfig(**_section(raw, "runtime")),
+    )
+
+
+def _migrate_v7_config(raw: dict[str, Any]) -> AppConfig:
+    return AppConfig(
+        schema_version=CURRENT_SCHEMA_VERSION,
+        gestures=_gestures_from_section(_section(raw, "gestures")),
+        cursor=CursorConfig(**_section(raw, "cursor")),
+        actions=_actions_from_section(_section(raw, "actions")),
         runtime=RuntimeConfig(**_section(raw, "runtime")),
     )
 

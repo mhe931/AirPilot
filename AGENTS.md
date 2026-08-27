@@ -91,9 +91,8 @@ powershell -ExecutionPolicy Bypass -File scripts/package_windows.ps1
   unless the run was intentionally started with `--no-mouse` or diagnostics.
 - Mouse activation can also be armed with a deliberate second-hand thumb-middle
   hold from the disarmed startup state.
-- Windows cursor feedback is encapsulated behind an adapter and restored during
-  shutdown; it uses transient OS cursor calls rather than permanent system
-  cursor replacement.
+- Cursor feedback intentionally no-ops global Windows cursor icon changes;
+  active state stays in AirPilot preview/help UI.
 - CI workflow for formatting, linting, typing, and tests.
 - Android feasibility document.
 - PyInstaller one-dir package builds and packaged CLI camera listing detects
@@ -107,7 +106,9 @@ powershell -ExecutionPolicy Bypass -File scripts/package_windows.ps1
   risky shortcuts disabled by default.
 - Clipboard History (`clipboard.history` / `Win+V`) is enabled by default through
   shortcut-mode thumb-middle hold.
-- Middle click is available via a deliberate thumb-middle hold/release.
+- Primary mouse gestures use pose/clutch semantics: thumb open tracks, thumb
+  closed/bent freezes the pointer, clutched index bend/release clicks or drags,
+  and clutched middle bend/release maps to right or middle click.
 - The preview stays compact; full gesture/action help opens in a separate window
   with `H` or a deliberate second-hand thumb-index hold, and contains a
   glanceable quick-start dashboard, mappings, action catalog, Task View guidance,
@@ -118,8 +119,8 @@ powershell -ExecutionPolicy Bypass -File scripts/package_windows.ps1
   `P` still pauses/resumes, and config can explicitly re-enable the gesture.
 - Pointer defaults now favor responsiveness with tighter camera bounds, higher
   sensitivity, lighter smoothing, and a small dead zone.
-- Click candidates freeze the pointer target; drag starts only after a hold plus
-  deliberate movement.
+- Clutched click candidates freeze the pointer target; drag starts only after a
+  hold plus deliberate movement.
 - Default app switching uses Task View: Shortcut Mode plus thumb-index hold opens
   `Win+Tab`, hand movement sends left/right, and release confirms with Enter.
 - Runtime exits print `AirPilot exit reason: ...`. Canonical quit is preview
@@ -127,13 +128,13 @@ powershell -ExecutionPolicy Bypass -File scripts/package_windows.ps1
   cannot close the preview loop.
 - Transient tracker exceptions are counted in diagnostics and treated as
   tracking loss for that frame. PyAutoGUI failsafe disarms mouse output and
-  continues when recovery is possible.
+  latches repeated corner warnings while recovery is possible.
 
 ## Known Issues
 
-- Manual validation is still required for arm gesture, click accuracy, drag,
-  Help glanceability, Task View, scroll up/down/control, Clipboard History,
-  long-run stability, and feel.
+- Manual validation is still required for thumb-open tracking, thumb-closed
+  clutch, index/middle bend clicks, drag, arm gesture, Help glanceability, Task
+  View, scroll up/down/control, Clipboard History, long-run stability, and feel.
 - Packaged executable is unsigned.
 - Camera unplug/replug recovery now retries reopening the same camera index, but
   recovery still depends on Windows presenting the device again on that index.

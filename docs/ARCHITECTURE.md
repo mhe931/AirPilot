@@ -12,8 +12,8 @@ input so the gesture model can be reused across platforms.
 - `display`: reads Windows virtual-desktop geometry for multi-monitor mapping.
 - `actions`: routes deliberate shortcut-mode gestures to semantic action IDs and
   fakeable keyboard shortcut dispatch.
-- `cursor_feedback`: provides transient Windows cursor-shape feedback while the
-  control hand is active, without permanently replacing system cursors.
+- `cursor_feedback`: intentionally no-ops cursor icon changes so AirPilot never
+  overrides the global Windows cursor shape.
 - `app`: coordinates runtime, preview UI, status, config, and shutdown.
 
 ## Event Flow
@@ -43,8 +43,11 @@ shortcut mode.
 
 Gestures are explicit states rather than one-frame classifications:
 
+- Open-thumb pose tracks the pointer; closed/bent thumb pose clutches and freezes
+  the pointer for click/drag poses.
 - Clicks require hold and release. A click candidate locks the cursor position so
-  pinch jitter does not move the click target.
+  hand jitter does not move the click target.
+- Primary left/right/middle clicks use index/middle bend states while clutched.
 - Dragging requires a longer hold plus deliberate movement and consumes the
   click.
 - Pinch thresholds use release hysteresis.
@@ -60,7 +63,8 @@ Gestures are explicit states rather than one-frame classifications:
   with the preview key or the deliberate second-hand arm gesture.
 - `--no-mouse` and diagnostics lock output off for that run; otherwise `A`
   enables/disables output even if a loaded config had mouse output disabled.
-- Conflicting new pinches are canceled rather than emitted as combined actions.
+- Conflicting new primary gestures are canceled rather than emitted as combined
+  actions.
 - Shortcut actions run only through configured semantic action IDs, use cooldowns,
   require shortcut mode, and skip risky actions unless explicitly enabled.
 
@@ -68,10 +72,12 @@ Gestures are explicit states rather than one-frame classifications:
 
 Default gestures:
 
-- Thumb-index: left click on release, with target lock while held; drag starts
-  only after hold plus deliberate movement.
-- Thumb-middle: right click.
-- Thumb-middle hold: middle click.
+- Thumb open: pointer follows the control-hand index fingertip.
+- Thumb closed/bent: clutch/freeze pointer.
+- Clutch plus index bend/release: left click on release, with target lock while
+  held; drag starts only after hold plus deliberate movement.
+- Clutch plus middle bend/release: right click.
+- Clutch plus middle long hold/release: middle click.
 - Thumb-ring: scroll mode; while held, accumulated vertical wrist movement emits
   repeated wheel events and suppresses pointer movement.
 - Thumb-pinky: optional pause/resume hold when enabled in config.
@@ -125,8 +131,8 @@ and tab close are present but disabled and/or risky by default.
 - Missing or invalid landmarks do not emit clicks.
 - Preview landmark rendering failures disable only the landmark overlay and keep
   the gesture loop running.
-- Cursor feedback restoration runs during cleanup so transient cursor state does
-  not intentionally persist after quit, errors, or camera failure.
+- AirPilot does not override the Windows cursor icon; preview/help status is the
+  operator feedback channel.
 - Tracking loss reports status and resets cursor smoothing.
 - PyAutoGUI corner failsafe is enabled by default. When it fires during normal
   mouse output, AirPilot disarms pointer control and continues so the operator

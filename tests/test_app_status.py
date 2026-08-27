@@ -304,7 +304,7 @@ def test_help_content_is_readable_and_renderable() -> None:
     assert "SHORTCUT MODE" in lines
     assert "AVAILABLE SHORTCUT ACTIONS" in lines
     assert any("Task View" in line for line in lines)
-    assert any("Thumb + index pinch/release | Left click" in line for line in lines)
+    assert any("Clutch + index bend/release | Left click" in line for line in lines)
     assert any("Clipboard history `Win+V`" in line for line in lines)
     assert "Q | Quit" in lines
     assert isinstance(image, np.ndarray)
