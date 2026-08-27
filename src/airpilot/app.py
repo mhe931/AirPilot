@@ -29,6 +29,7 @@ from airpilot.camera import OpenCVCamera, list_cameras
 from airpilot.config import (
     AppConfig,
     GestureBinding,
+    TextStyleConfig,
     default_config_path,
     load_config,
     read_config_schema_version,
@@ -45,6 +46,121 @@ from airpilot.safety import MouseSafetyGate
 from airpilot.tracking import HandDrawingError, MediaPipeHandTracker
 
 PREVIEW_WINDOW_TITLE = "AirPilot"
+
+# ---------------------------------------------------------------------------
+# Emoji registry – consistent across sidebar, Help, and status overlays.
+# OpenCV does not render Unicode emoji in cv2.putText; these are used only in
+# the Tkinter Help window and Settings where the font supports them.
+# ---------------------------------------------------------------------------
+
+EMOJI_HAND = "🖐"
+EMOJI_POINTER_ON = "🖱️"
+EMOJI_POINTER_FROZEN = "🧊"
+EMOJI_LEFT_CLICK = "👆"
+EMOJI_RIGHT_CLICK = "☝️"
+EMOJI_DRAG = "✊"
+EMOJI_SCROLL = "📜"
+EMOJI_SHORTCUT = "✌️"
+EMOJI_HELP = "❓"
+EMOJI_SETTINGS = "⚙️"
+EMOJI_ARM = "✅"
+EMOJI_COPY = "📋"
+EMOJI_PASTE = "📌"
+EMOJI_NEXT_SLIDE = "▶️"
+EMOJI_PREV_SLIDE = "◀️"
+EMOJI_FIST = "👊"
+EMOJI_MOVE_LEFT = "←"
+EMOJI_MOVE_RIGHT = "→"
+EMOJI_MOVE_UP = "↑"
+EMOJI_MOVE_DOWN = "↓"
+
+
+def _hex_to_bgr(hex_color: str) -> tuple[int, int, int]:
+    """Convert a CSS hex color (``#rrggbb``) to an OpenCV BGR tuple.
+
+    Falls back to white on malformed input so callers never receive a crash.
+    """
+    h = hex_color.lstrip("#")
+    if len(h) != 6:
+        return (255, 255, 255)
+    try:
+        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    except ValueError:
+        return (255, 255, 255)
+    return (b, g, r)
+
+
+def _sidebar_lines(
+    frame: TrackingFrame,
+    events: GestureEvents,
+    config: AppConfig,
+    *,
+    armed: bool,
+) -> list[str]:
+    """Return compact sidebar lines for the live preview panel.
+
+    Lines are ASCII-safe because cv2.putText cannot render Unicode.
+    Returns an empty list when the sidebar is disabled in text_styles.
+    """
+    if not config.text_styles.sidebar_enabled:
+        return []
+
+    hand = frame.hand
+    hand_label = "hand: -"
+    if hand is not None:
+        side = hand.handedness.value[0].upper()
+        hand_label = f"hand: {side}"
+    if frame.secondary_hand is not None:
+        sec_side = frame.secondary_hand.handedness.value[0].upper()
+        hand_label += f"+{sec_side}"
+
+    mode = "DISARMED"
+    if events.paused:
+        mode = "PAUSED"
+    elif armed:
+        mode = "ACTIVE"
+
+    gesture_abbrev = {
+        "clutch": "frozen",
+        "click_candidate": "click?",
+        "left_click": "click!",
+        "dragging": "drag",
+        "scroll": "scroll",
+        "shortcut_mode": "shortcuts",
+        "shortcut_pending": "shortcut?",
+        "arm_pending": "arming...",
+        "help_pending": "help?",
+        "task_view_pending": "taskview?",
+        "task_view": "taskview",
+        "none": "",
+    }
+    gesture = gesture_abbrev.get(events.active_gesture, events.active_gesture or "")
+
+    lines = [mode, hand_label]
+    if gesture:
+        lines.append(gesture)
+
+    # Available gestures (brief list)
+    lines.append("---")
+    lines.append("thumb open: move")
+    lines.append("thumb fold: freeze")
+    lines.append("freeze+idx: click")
+    lines.append("freeze+mid: r-click")
+    lines.append("ring+wrist: scroll")
+    if events.shortcut_mode:
+        lines.append("idx: copy")
+        lines.append("mid: paste")
+        lines.append("mid hold: clipbrd")
+        lines.append("ring: next slide")
+        lines.append("pinky: prev slide")
+    else:
+        lines.append("2nd hand: shortcuts")
+    # Configurable bindings – show enabled ones
+    for b in config.gesture_bindings:
+        if b.enabled and b.action_id:
+            short_id = b.action_id.split(".")[-1]
+            lines.append(f"[{b.id[:8]}]:{short_id[:10]}")
+    return lines
 
 
 class ExitReason(StrEnum):
@@ -260,6 +376,12 @@ def run(
             events = binding_matcher.process(frame, events)
             if events.action_id == "ui.toggle_help":
                 operator_notice = _dispatch_ui_action(events.action_id, help_window)
+            elif events.action_id in ("ui.open_settings", "ui.close_settings"):
+                operator_notice = _dispatch_ui_action(
+                    events.action_id,
+                    help_window,
+                    settings_window=settings_window,
+                )
             elif events.action_id == "ui.arm":
                 operator_notice = _dispatch_ui_action(
                     events.action_id,
@@ -505,6 +627,80 @@ def _draw_status(
             1,
             cv2.LINE_AA,
         )
+    # Left-side contextual gesture/action sidebar
+    _draw_sidebar(image, frame, events, config, armed=armed)
+
+
+def _draw_sidebar(
+    image: MatLike,
+    frame: TrackingFrame,
+    events: GestureEvents,
+    config: AppConfig,
+    *,
+    armed: bool,
+) -> None:
+    """Draw a compact contextual gesture/action sidebar on the left edge.
+
+    The sidebar lists available gestures and their current actions, updating
+    live based on active mode, shortcut state, and gesture bindings.
+    It uses a solid dark background strip so text is always readable even over
+    bright camera frames.
+    """
+    lines = _sidebar_lines(frame, events, config, armed=armed)
+    if not lines:
+        return
+
+    height = int(image.shape[0])
+    scale_factor = max(config.text_styles.sidebar_scale_pct, 10) / 100.0
+    text_scale = 0.35 * scale_factor
+    line_height = int(14 * scale_factor)
+    padding_x = 4
+    padding_y = 6
+
+    # Determine panel width from longest line
+    panel_width = 2 * padding_x
+    for line in lines:
+        tw, _ = cv2.getTextSize(line, cv2.FONT_HERSHEY_SIMPLEX, text_scale, 1)
+        panel_width = max(panel_width, tw[0] + 2 * padding_x)
+    panel_width = min(panel_width, int(image.shape[1] // 3))
+
+    # Draw background panel
+    bg = _hex_to_bgr(config.text_styles.sidebar_bg)
+    cv2.rectangle(image, (0, 0), (panel_width, height), bg, thickness=-1)
+
+    # Draw separator line
+    cv2.line(image, (panel_width, 0), (panel_width, height), (60, 60, 60), 1)
+
+    fg = _hex_to_bgr(config.text_styles.sidebar_fg)
+    y = padding_y + line_height
+    for idx, line in enumerate(lines):
+        if y > height - padding_y:
+            break
+        if line == "---":
+            cv2.line(
+                image,
+                (padding_x, y - line_height // 2),
+                (panel_width - padding_x, y - line_height // 2),
+                (80, 80, 80),
+                1,
+            )
+            y += line_height // 2
+            continue
+        # Highlight header lines
+        color = fg
+        if idx == 0:
+            color = (200, 200, 255)  # lighter for mode
+        cv2.putText(
+            image,
+            line,
+            (padding_x, y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            text_scale,
+            color,
+            1,
+            cv2.LINE_AA,
+        )
+        y += line_height
 
 
 def _draw_calibration_region(image: MatLike, config: AppConfig) -> None:
@@ -615,6 +811,7 @@ def _dispatch_ui_action(
     *,
     config: AppConfig | None = None,
     safety: MouseSafetyGate | None = None,
+    settings_window: SettingsWindow | None = None,
     mouse_output_locked: bool = False,
 ) -> str | None:
     if action_id == "ui.toggle_help":
@@ -622,6 +819,20 @@ def _dispatch_ui_action(
             return None
         visible = help_window.toggle()
         return "Help opened" if visible else "Help closed"
+    if action_id == "ui.open_settings":
+        if settings_window is None:
+            return None
+        if settings_window.is_open():
+            return "Settings already open"
+        settings_window.open()
+        return "Settings opened"
+    if action_id == "ui.close_settings":
+        if settings_window is None:
+            return None
+        if not settings_window.is_open():
+            return None
+        settings_window.close()
+        return "Settings closed"
     if action_id == "ui.arm":
         if mouse_output_locked:
             return "Mouse output disabled for diagnostics/--no-mouse"
@@ -825,6 +1036,12 @@ class SettingsWindow:
         nb.add(bindings_frame, text="Gesture Bindings")
         self._build_bindings_tab(bindings_frame)
 
+        # --- Typography tab ---
+        typo_frame = ttk.Frame(nb, padding=10)
+        nb.add(typo_frame, text="Typography")
+        self._typo_vars: dict[str, tk.Variable] = {}
+        self._build_typography_tab(typo_frame)
+
         # --- Buttons ---
         btn_frame = ttk.Frame(win)
         btn_frame.pack(fill="x", padx=8, pady=(0, 8))
@@ -951,8 +1168,102 @@ class SettingsWindow:
         frame.columnconfigure(2, weight=1)
 
     # ------------------------------------------------------------------
-    # Gesture Bindings tab
+    # Typography tab
     # ------------------------------------------------------------------
+
+    def _build_typography_tab(self, frame: ttk.Frame) -> None:
+        """Build the text style settings tab."""
+        ts = self._config.text_styles
+        rows: list[tuple[str, str, tk.Variable, float, float, float]] = [
+            (
+                "Overlay scale %",
+                "Scale overlay text (50–200; 100 = default)",
+                tk.IntVar(value=ts.overlay_scale_pct),
+                50,
+                200,
+                5,
+            ),
+            (
+                "Sidebar scale %",
+                "Scale sidebar text (50–200; 100 = default)",
+                tk.IntVar(value=ts.sidebar_scale_pct),
+                50,
+                200,
+                5,
+            ),
+            (
+                "Help font size",
+                "Help window font size in pt (6–24)",
+                tk.IntVar(value=ts.help_font_size),
+                6,
+                24,
+                1,
+            ),
+            (
+                "Settings font size",
+                "Settings window font size (0 = system default)",
+                tk.IntVar(value=ts.settings_font_size),
+                0,
+                24,
+                1,
+            ),
+        ]
+        for row_idx, (label, hint, var, lo, hi, inc) in enumerate(rows):
+            ttk.Label(frame, text=label, anchor="w").grid(row=row_idx, column=0, sticky="w", pady=3)
+            ttk.Spinbox(frame, textvariable=var, from_=lo, to=hi, increment=inc, width=10).grid(
+                row=row_idx, column=1, sticky="w", padx=(8, 0), pady=3
+            )
+            ttk.Label(frame, text=hint, foreground="gray", anchor="w").grid(
+                row=row_idx, column=2, sticky="w", padx=(12, 0), pady=3
+            )
+            self._typo_vars[label] = var
+
+        # Text entry fields for font family and hex colors
+        str_rows: list[tuple[str, str, tk.StringVar]] = [
+            (
+                "Overlay fg color",
+                "#ffffff format; white = #ffffff",
+                tk.StringVar(value=ts.overlay_fg),
+            ),
+            ("Sidebar fg color", "#e6e6e6 format", tk.StringVar(value=ts.sidebar_fg)),
+            (
+                "Sidebar bg color",
+                "#141414 format; dark panel bg",
+                tk.StringVar(value=ts.sidebar_bg),
+            ),
+            (
+                "Help font family",
+                "e.g. Consolas, Courier, monospace",
+                tk.StringVar(value=ts.help_font_family),
+            ),
+            (
+                "Settings font family",
+                "Leave empty for system default",
+                tk.StringVar(value=ts.settings_font_family),
+            ),
+        ]
+        base_row = len(rows)
+        for row_idx, (label, hint, var) in enumerate(str_rows):
+            ttk.Label(frame, text=label, anchor="w").grid(
+                row=base_row + row_idx, column=0, sticky="w", pady=3
+            )
+            ttk.Entry(frame, textvariable=var, width=18).grid(
+                row=base_row + row_idx, column=1, sticky="w", padx=(8, 0), pady=3
+            )
+            ttk.Label(frame, text=hint, foreground="gray", anchor="w").grid(
+                row=base_row + row_idx, column=2, sticky="w", padx=(12, 0), pady=3
+            )
+            self._typo_vars[label] = var
+
+        # Sidebar enabled toggle
+        self._sidebar_enabled_var = tk.BooleanVar(value=ts.sidebar_enabled)
+        en_row = base_row + len(str_rows)
+        ttk.Checkbutton(
+            frame,
+            text="Show gesture sidebar in preview",
+            variable=self._sidebar_enabled_var,
+        ).grid(row=en_row, column=0, columnspan=3, sticky="w", pady=(8, 3))
+        frame.columnconfigure(2, weight=1)
 
     _FINGER_OPTIONS = ("any", "folded", "extended")
     _MOVEMENT_OPTIONS = ("none", "left", "right", "up", "down")
@@ -1204,6 +1515,21 @@ class SettingsWindow:
             if hasattr(self, "_bindings_work"):
                 self._config.gesture_bindings = list(self._bindings_work)
 
+            # Typography settings
+            if hasattr(self, "_typo_vars"):
+                ts = self._config.text_styles
+                tv = self._typo_vars
+                ts.overlay_scale_pct = max(50, min(200, int(tv["Overlay scale %"].get())))  # type: ignore[no-untyped-call]
+                ts.sidebar_scale_pct = max(50, min(200, int(tv["Sidebar scale %"].get())))  # type: ignore[no-untyped-call]
+                ts.help_font_size = max(6, min(24, int(tv["Help font size"].get())))  # type: ignore[no-untyped-call]
+                ts.settings_font_size = max(0, min(24, int(tv["Settings font size"].get())))  # type: ignore[no-untyped-call]
+                ts.overlay_fg = str(tv["Overlay fg color"].get()).strip() or "#ffffff"  # type: ignore[no-untyped-call]
+                ts.sidebar_fg = str(tv["Sidebar fg color"].get()).strip() or "#e6e6e6"  # type: ignore[no-untyped-call]
+                ts.sidebar_bg = str(tv["Sidebar bg color"].get()).strip() or "#141414"  # type: ignore[no-untyped-call]
+                ts.help_font_family = str(tv["Help font family"].get()).strip()  # type: ignore[no-untyped-call]
+                ts.settings_font_family = str(tv["Settings font family"].get()).strip()  # type: ignore[no-untyped-call]
+                ts.sidebar_enabled = bool(self._sidebar_enabled_var.get())
+
             save_config(self._config, self._config_path)
         except (ValueError, tk.TclError):
             pass
@@ -1236,6 +1562,20 @@ class SettingsWindow:
             self._bindings_work = copy.deepcopy(_default_gesture_bindings())
             self._current_binding_idx = None
             self._refresh_binding_list()
+
+        if hasattr(self, "_typo_vars"):
+            dt = TextStyleConfig()
+            tv = self._typo_vars
+            tv["Overlay scale %"].set(dt.overlay_scale_pct)
+            tv["Sidebar scale %"].set(dt.sidebar_scale_pct)
+            tv["Help font size"].set(dt.help_font_size)
+            tv["Settings font size"].set(dt.settings_font_size)
+            tv["Overlay fg color"].set(dt.overlay_fg)
+            tv["Sidebar fg color"].set(dt.sidebar_fg)
+            tv["Sidebar bg color"].set(dt.sidebar_bg)
+            tv["Help font family"].set(dt.help_font_family)
+            tv["Settings font family"].set(dt.settings_font_family)
+            self._sidebar_enabled_var.set(dt.sidebar_enabled)
 
 
 class _TkHelpBackend:
@@ -1447,19 +1787,71 @@ def _help_sections(config: AppConfig) -> list[HelpSection]:
 
 
 def _format_help_header() -> str:
-    """Format the table header row with clear column separators."""
-    return "  Action                    │ Gesture           │ Keys              │ State"
+    """Format the table header row with emoji + clear column separators."""
+    return "  ✦  │ Action                   │ Gesture           │ Keys              │ State"
+
+
+# Emoji lookup by action keyword for the Help table
+_HELP_ACTION_EMOJIS: dict[str, str] = {
+    "arm": "✅",
+    "move": "🖱️",
+    "pointer": "🖱️",
+    "click": "👆",
+    "drag": "✊",
+    "scroll": "📜",
+    "right click": "☝️",
+    "middle click": "🖱️",
+    "switch": "↔️",
+    "quit": "❌",
+    "help": "❓",
+    "settings": "⚙️",
+    "copy": "📋",
+    "paste": "📌",
+    "cut": "✂️",
+    "undo": "↩️",
+    "redo": "↪️",
+    "save": "💾",
+    "find": "🔍",
+    "next": "▶️",
+    "previous": "◀️",
+    "play": "▶️",
+    "pause": "⏸️",
+    "mute": "🔇",
+    "volume": "🔊",
+    "tab": "📑",
+    "lock": "🔒",
+    "desktop": "🖥️",
+    "task": "📋",
+    "explore": "📁",
+    "search": "🔍",
+    "refresh": "🔄",
+    "back": "⬅️",
+    "forward": "➡️",
+    "minimize": "🔽",
+    "maximize": "🔼",
+    "snap": "📐",
+}
+
+
+def _help_emoji_for_action(action_text: str) -> str:
+    """Return the best-matching emoji for an action description."""
+    lower = action_text.lower()
+    for keyword, emoji in _HELP_ACTION_EMOJIS.items():
+        if keyword in lower:
+            return emoji
+    return " "
 
 
 def _format_help_row(line: str) -> str:
     parts = [part.strip() for part in line.split(" | ")]
     if len(parts) != 4:
         return line
-    action = parts[0][:25].ljust(25)
+    emoji = _help_emoji_for_action(parts[0])
+    action = parts[0][:24].ljust(24)
     gesture = parts[1][:17].ljust(17)
     keys = parts[2][:17].ljust(17)
     state = parts[3]
-    return f"  {action}  │ {gesture}  │ {keys}  │ {state}"
+    return f"  {emoji}  │ {action}  │ {gesture}  │ {keys}  │ {state}"
 
 
 def _filter_help_sections(sections: Sequence[HelpSection], filter_text: str) -> list[HelpSection]:

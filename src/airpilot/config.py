@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
-CURRENT_SCHEMA_VERSION = 10
+CURRENT_SCHEMA_VERSION = 11
 
 # ---------------------------------------------------------------------------
 # Gesture Binding schema (data-driven configurable bindings)
@@ -65,10 +65,11 @@ class GestureBinding:
 def _default_gesture_bindings() -> list[GestureBinding]:
     """Return the default gesture binding list.
 
-    Ships with a single *disabled* example that maps
-    ``thumb folded + index folded + move hand right`` to
-    ``presentation.next_slide`` (PowerPoint / Impress next slide).
-    Enable it deliberately after physical validation.
+    Ships with three *disabled* examples:
+    1. ``thumb folded + index folded + move hand right`` → ``presentation.next_slide``
+    2. Fist (all folded) + move right → open Settings (single-hand, enter trigger, cooldown)
+    3. Fist (all folded) + move left  → toggle Help (single-hand, enter trigger, cooldown)
+    Enable them deliberately after physical validation.
     """
     return [
         GestureBinding(
@@ -87,7 +88,41 @@ def _default_gesture_bindings() -> list[GestureBinding]:
             cooldown_ms=600,
             sensitivity=1.0,
             action_id="presentation.next_slide",
-        )
+        ),
+        GestureBinding(
+            id="open_settings_gesture",
+            enabled=False,
+            hand="either",
+            thumb="folded",
+            index="folded",
+            middle="folded",
+            ring="folded",
+            pinky="folded",
+            movement="right",
+            trigger="enter",
+            threshold=0.05,
+            hold_ms=0,
+            cooldown_ms=1500,
+            sensitivity=1.0,
+            action_id="ui.open_settings",
+        ),
+        GestureBinding(
+            id="toggle_help_gesture",
+            enabled=False,
+            hand="either",
+            thumb="folded",
+            index="folded",
+            middle="folded",
+            ring="folded",
+            pinky="folded",
+            movement="left",
+            trigger="enter",
+            threshold=0.05,
+            hold_ms=0,
+            cooldown_ms=1500,
+            sensitivity=1.0,
+            action_id="ui.toggle_help",
+        ),
     ]
 
 
@@ -378,6 +413,9 @@ def _default_shortcut_catalog() -> dict[str, ShortcutConfig]:
         "media.volume_down": ShortcutConfig("Volume down", ("volumedown",), "media", enabled=False),
         "media.next": ShortcutConfig("Next media", ("nexttrack",), "media", enabled=False),
         "media.previous": ShortcutConfig("Previous media", ("prevtrack",), "media", enabled=False),
+        # UI actions (no keyboard keys – handled programmatically)
+        "ui.open_settings": ShortcutConfig("Open Settings", (), "ui"),
+        "ui.close_settings": ShortcutConfig("Close Settings", (), "ui"),
     }
 
 
@@ -419,6 +457,56 @@ class RuntimeConfig:
     tracker_tracking_confidence: float = 0.55
 
 
+# ---------------------------------------------------------------------------
+# TextStyle configuration (v11+)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(slots=True)
+class TextStyleConfig:
+    """Per-region text style settings.
+
+    Colors are stored as CSS-style hex strings (e.g. ``"#ffffff"``).
+    Empty ``font_family`` / zero ``font_size`` means "use system default".
+    ``overlay_scale_pct`` is a percentage multiplier on the built-in cv2
+    text scale values (100 = default, 120 = 20% larger).
+    """
+
+    # OpenCV banner / detail overlay
+    overlay_scale_pct: int = 100
+    overlay_fg: str = "#ffffff"
+    # Left-side gesture sidebar
+    sidebar_enabled: bool = True
+    sidebar_fg: str = "#e6e6e6"
+    sidebar_bg: str = "#141414"
+    sidebar_scale_pct: int = 100
+    # Help window (Tkinter)
+    help_font_family: str = "Consolas"
+    help_font_size: int = 10
+    # Settings window (Tkinter) – empty / 0 means use system default
+    settings_font_family: str = ""
+    settings_font_size: int = 0
+
+
+def _text_style_from_section(raw: dict[str, Any]) -> TextStyleConfig:
+    """Deserialise a ``text_styles`` config section, tolerating unknown keys."""
+    defaults = TextStyleConfig()
+    section: dict[str, Any] = {
+        "overlay_scale_pct": defaults.overlay_scale_pct,
+        "overlay_fg": defaults.overlay_fg,
+        "sidebar_enabled": defaults.sidebar_enabled,
+        "sidebar_fg": defaults.sidebar_fg,
+        "sidebar_bg": defaults.sidebar_bg,
+        "sidebar_scale_pct": defaults.sidebar_scale_pct,
+        "help_font_family": defaults.help_font_family,
+        "help_font_size": defaults.help_font_size,
+        "settings_font_family": defaults.settings_font_family,
+        "settings_font_size": defaults.settings_font_size,
+    }
+    section.update({k: v for k, v in raw.items() if k in section})
+    return TextStyleConfig(**section)
+
+
 @dataclass(slots=True)
 class AppConfig:
     schema_version: int = CURRENT_SCHEMA_VERSION
@@ -427,6 +515,7 @@ class AppConfig:
     actions: ActionConfig = field(default_factory=ActionConfig)
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
     gesture_bindings: list[GestureBinding] = field(default_factory=_default_gesture_bindings)
+    text_styles: TextStyleConfig = field(default_factory=TextStyleConfig)
 
 
 def default_config_path() -> Path:
@@ -486,6 +575,8 @@ def _config_from_dict(raw: dict[str, Any]) -> AppConfig:
         return _migrate_v8_config(raw)
     if version == 9:
         return _migrate_v9_config(raw)
+    if version == 10:
+        return _migrate_v10_config(raw)
     if version != CURRENT_SCHEMA_VERSION:
         raise ValueError(f"Unsupported AirPilot config schema_version {version!r}")
     return AppConfig(
@@ -495,6 +586,7 @@ def _config_from_dict(raw: dict[str, Any]) -> AppConfig:
         actions=_actions_from_section(_section(raw, "actions")),
         runtime=RuntimeConfig(**_section(raw, "runtime")),
         gesture_bindings=_bindings_from_list(raw.get("gesture_bindings")),
+        text_styles=_text_style_from_section(_section(raw, "text_styles")),
     )
 
 
@@ -649,13 +741,27 @@ def _migrate_v8_config(raw: dict[str, Any]) -> AppConfig:
 
 
 def _migrate_v9_config(raw: dict[str, Any]) -> AppConfig:
-    """v9 → v10: new thumb-angle and scroll-enhancement fields gain safe defaults."""
+    """v9 → v11: new thumb-angle and scroll-enhancement fields gain safe defaults."""
     return AppConfig(
         schema_version=CURRENT_SCHEMA_VERSION,
         gestures=_gestures_from_section(_section(raw, "gestures")),
         cursor=CursorConfig(**_section(raw, "cursor")),
         actions=_actions_from_section(_section(raw, "actions")),
         runtime=RuntimeConfig(**_section(raw, "runtime")),
+    )
+
+
+def _migrate_v10_config(raw: dict[str, Any]) -> AppConfig:
+    """v10 → v11: text_styles section added with safe accessible defaults."""
+    return AppConfig(
+        schema_version=CURRENT_SCHEMA_VERSION,
+        gestures=_gestures_from_section(_section(raw, "gestures")),
+        cursor=CursorConfig(**_section(raw, "cursor")),
+        actions=_actions_from_section(_section(raw, "actions")),
+        runtime=RuntimeConfig(**_section(raw, "runtime")),
+        gesture_bindings=_bindings_from_list(raw.get("gesture_bindings")),
+        # text_styles absent in v10 → use safe defaults
+        text_styles=TextStyleConfig(),
     )
 
 

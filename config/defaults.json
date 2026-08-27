@@ -397,6 +397,20 @@
         "profile": "ui",
         "risky": false
       },
+      "ui.close_settings": {
+        "enabled": true,
+        "keys": [],
+        "label": "Close Settings",
+        "profile": "ui",
+        "risky": false
+      },
+      "ui.open_settings": {
+        "enabled": true,
+        "keys": [],
+        "label": "Open Settings",
+        "profile": "ui",
+        "risky": false
+      },
       "ui.toggle_help": {
         "enabled": true,
         "keys": [],
@@ -520,6 +534,40 @@
       "threshold": 0.04,
       "thumb": "folded",
       "trigger": "enter"
+    },
+    {
+      "action_id": "ui.open_settings",
+      "cooldown_ms": 1500,
+      "enabled": false,
+      "hand": "either",
+      "hold_ms": 0,
+      "id": "open_settings_gesture",
+      "index": "folded",
+      "middle": "folded",
+      "movement": "right",
+      "pinky": "folded",
+      "ring": "folded",
+      "sensitivity": 1.0,
+      "threshold": 0.05,
+      "thumb": "folded",
+      "trigger": "enter"
+    },
+    {
+      "action_id": "ui.toggle_help",
+      "cooldown_ms": 1500,
+      "enabled": false,
+      "hand": "either",
+      "hold_ms": 0,
+      "id": "toggle_help_gesture",
+      "index": "folded",
+      "middle": "folded",
+      "movement": "left",
+      "pinky": "folded",
+      "ring": "folded",
+      "sensitivity": 1.0,
+      "threshold": 0.05,
+      "thumb": "folded",
+      "trigger": "enter"
     }
   ],
   "gestures": {
@@ -582,5 +630,17 @@
     "tracker_detection_confidence": 0.55,
     "tracker_tracking_confidence": 0.55
   },
-  "schema_version": 10
+  "schema_version": 11,
+  "text_styles": {
+    "help_font_family": "Consolas",
+    "help_font_size": 10,
+    "overlay_fg": "#ffffff",
+    "overlay_scale_pct": 100,
+    "settings_font_family": "",
+    "settings_font_size": 0,
+    "sidebar_bg": "#141414",
+    "sidebar_enabled": true,
+    "sidebar_fg": "#e6e6e6",
+    "sidebar_scale_pct": 100
+  }
 }

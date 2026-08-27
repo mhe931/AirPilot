@@ -16,7 +16,7 @@ def test_config_round_trip(tmp_path: Path) -> None:
     save_config(config, path)
     loaded = load_config(path)
 
-    assert loaded.schema_version == 10
+    assert loaded.schema_version == 11
     assert loaded.cursor.sensitivity == 1.4
     assert loaded.runtime.camera_index == 2
 
@@ -51,7 +51,7 @@ def test_v1_config_migrates_legacy_mirrored_cursor_default(tmp_path: Path) -> No
 
     loaded = load_config(path)
 
-    assert loaded.schema_version == 10
+    assert loaded.schema_version == 11
     assert loaded.cursor.mirror_x is True
     assert loaded.cursor.sensitivity == 1.2
     assert loaded.runtime.camera_index == 1
@@ -73,7 +73,7 @@ def test_v1_config_preserves_equivalent_horizontal_behavior_when_unmirrored(
 
     loaded = load_config(path)
 
-    assert loaded.schema_version == 10
+    assert loaded.schema_version == 11
     assert loaded.runtime.flip_camera_x is False
     assert loaded.cursor.mirror_x is True
 
@@ -93,7 +93,7 @@ def test_v2_config_migrates_to_actual_camera_orientation(tmp_path: Path) -> None
 
     loaded = load_config(path)
 
-    assert loaded.schema_version == 10
+    assert loaded.schema_version == 11
     assert loaded.runtime.flip_camera_x is False
     assert loaded.cursor.mirror_x is True
 
@@ -118,7 +118,7 @@ def test_v4_config_hides_help_overlay_after_migration(tmp_path: Path) -> None:
 
     loaded = load_config(path)
 
-    assert loaded.schema_version == 10
+    assert loaded.schema_version == 11
     assert loaded.runtime.show_gesture_help is False
     assert loaded.gestures.pause_gesture_enabled is False
     assert loaded.gestures.help_gesture_enabled is True
@@ -163,7 +163,7 @@ def test_v4_config_updates_untouched_cursor_defaults_for_responsiveness(tmp_path
 
     loaded = load_config(path)
 
-    assert loaded.schema_version == 10
+    assert loaded.schema_version == 11
     assert loaded.cursor.camera_min_x == 0.16
     assert loaded.cursor.camera_max_x == 0.84
     assert loaded.cursor.camera_min_y == 0.12
@@ -196,7 +196,7 @@ def test_v4_config_preserves_custom_cursor_tuning(tmp_path: Path) -> None:
 
     loaded = load_config(path)
 
-    assert loaded.schema_version == 10
+    assert loaded.schema_version == 11
     assert loaded.cursor.camera_min_x == 0.10
     assert loaded.cursor.camera_max_x == 0.90
     assert loaded.cursor.camera_min_y == 0.11
@@ -223,7 +223,7 @@ def test_v3_config_migrates_to_actual_orientation_and_operator_direction(
 
     loaded = load_config(path)
 
-    assert loaded.schema_version == 10
+    assert loaded.schema_version == 11
     assert loaded.runtime.flip_camera_x is False
     assert loaded.cursor.mirror_x is True
 
@@ -259,7 +259,7 @@ def test_v5_config_adds_scroll_tuning_and_clipboard_history(tmp_path: Path) -> N
 
     loaded = load_config(path)
 
-    assert loaded.schema_version == 10
+    assert loaded.schema_version == 11
     assert loaded.gestures.scroll_sensitivity == 1.4
     assert loaded.gestures.scroll_cooldown_ms == 35
     assert loaded.gestures.scroll_pinch_threshold == 0.085
@@ -291,7 +291,7 @@ def test_v5_config_preserves_custom_scroll_tuning(tmp_path: Path) -> None:
 
     loaded = load_config(path)
 
-    assert loaded.schema_version == 10
+    assert loaded.schema_version == 11
     assert loaded.gestures.scroll_pinch_threshold == 0.090
     assert loaded.gestures.scroll_pinch_release_threshold == 0.140
     assert loaded.gestures.scroll_activation_y_delta == 0.020
@@ -314,7 +314,7 @@ def test_v7_config_adds_pose_clutch_thresholds(tmp_path: Path) -> None:
 
     loaded = load_config(path)
 
-    assert loaded.schema_version == 10
+    assert loaded.schema_version == 11
     assert loaded.gestures.click_cooldown_ms == 250
     assert loaded.gestures.thumb_close_threshold == 0.72
     assert loaded.gestures.thumb_open_threshold == 0.82
@@ -339,7 +339,7 @@ def test_v8_config_updates_untouched_thumb_open_threshold(tmp_path: Path) -> Non
 
     loaded = load_config(path)
 
-    assert loaded.schema_version == 10
+    assert loaded.schema_version == 11
     assert loaded.gestures.thumb_close_threshold == 0.72
     assert loaded.gestures.thumb_open_threshold == 0.82
 
@@ -360,7 +360,7 @@ def test_v8_config_preserves_custom_thumb_open_threshold(tmp_path: Path) -> None
 
     loaded = load_config(path)
 
-    assert loaded.schema_version == 10
+    assert loaded.schema_version == 11
     assert loaded.gestures.thumb_open_threshold == 0.88
 
 
