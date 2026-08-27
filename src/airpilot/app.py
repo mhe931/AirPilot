@@ -28,14 +28,16 @@ from airpilot.actions import (
 from airpilot.camera import OpenCVCamera, list_cameras
 from airpilot.config import (
     AppConfig,
+    GestureBinding,
     default_config_path,
     load_config,
     read_config_schema_version,
     save_config,
+    validate_gesture_bindings,
 )
 from airpilot.display import create_display_provider
 from airpilot.domain.cursor import CursorMapper
-from airpilot.domain.gestures import GestureEngine
+from airpilot.domain.gestures import GestureBindingMatcher, GestureEngine
 from airpilot.domain.pose import thumb_index_angle_deg
 from airpilot.domain.types import GestureEvents, TrackingFrame
 from airpilot.input import MouseController, PyAutoGuiMouseController
@@ -222,6 +224,7 @@ def run(
         config.cursor.screen_height = desktop.height
         engine = GestureEngine(config.gestures, CursorMapper(config.cursor))
         action_router = ActionRouter(config.actions, config.gestures)
+        binding_matcher = GestureBindingMatcher(config.gesture_bindings, config.gestures)
         help_window = HelpWindow(visible=config.runtime.show_gesture_help)
         settings_window = SettingsWindow(config, None)
         mouse = PyAutoGuiMouseController(
@@ -254,6 +257,7 @@ def run(
                     )
             events = engine.process(frame)
             events = action_router.process(frame, events)
+            events = binding_matcher.process(frame, events)
             if events.action_id == "ui.toggle_help":
                 operator_notice = _dispatch_ui_action(events.action_id, help_window)
             elif events.action_id == "ui.arm":
@@ -416,7 +420,7 @@ def status_lines(
     hand = frame.hand
     tracking = "hand" if hand is not None else "searching"
     hand_score = f"{hand.confidence:.2f}" if hand is not None else "--"
-    control_hand = hand.handedness.value if hand is not None else "--"
+    control_hand = hand.handedness.value[0].upper() if hand is not None else "-"
     headline, guidance = _headline_text(
         config=config,
         armed=armed,
@@ -426,23 +430,18 @@ def status_lines(
         mouse_output_locked=mouse_output_locked,
     )
     controls = _controls_text(config, mouse_output_locked=mouse_output_locked)
-    hand_count = len(frame.hands)
     # Compact angle field
     angle_str = "--"
     if hand is not None and config.gestures.use_thumb_angle_activation:
         ang = thumb_index_angle_deg(hand.landmarks)
         if ang is not None:
             angle_str = f"{ang:.0f}\u00b0"
-    lines = [
-        headline,
-        guidance,
-        (
-            f"{tracking} | {events.active_gesture} | "
-            f"hand {control_hand}/{hand_count} | score {hand_score} | "
-            f"\u03b8{angle_str} | {fps:.0f}fps"
-        ),
-        controls,
-    ]
+    gesture_label = events.active_gesture
+    detail = (
+        f"{tracking} | {gesture_label} | "
+        f"{control_hand} hand | \u03b8{angle_str} | score {hand_score} | {fps:.0f}fps"
+    )
+    lines = [headline, guidance, detail, controls]
     if events.action_label is not None:
         lines.append(f"action {events.action_label}")
     if drawing_error is not None:
@@ -482,16 +481,28 @@ def _draw_status(
         paused=events.paused,
         mouse_output_locked=mouse_output_locked,
     )
-    detail_color = (255, 255, 255)
+    # Detail lines (index 2+) drawn below the banner with shadow for contrast
     for line in layout[2:]:
+        # Black shadow pass first
+        cv2.putText(
+            image,
+            line.text,
+            (line.x + 1, line.y + 1),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            line.scale,
+            (0, 0, 0),
+            2,
+            cv2.LINE_AA,
+        )
+        # White text on top
         cv2.putText(
             image,
             line.text,
             (line.x, line.y),
             cv2.FONT_HERSHEY_SIMPLEX,
             line.scale,
-            detail_color,
-            2,
+            (240, 240, 240),
+            1,
             cv2.LINE_AA,
         )
 
@@ -756,7 +767,7 @@ class SettingsWindow:
         self._window = tk.Toplevel(self._root)
         self._window.title("AirPilot Settings")
         self._window.resizable(True, True)
-        self._window.minsize(540, 400)
+        self._window.minsize(560, 440)
         self._window.protocol("WM_DELETE_WINDOW", self.close)
         self._build_ui()
 
@@ -808,6 +819,11 @@ class SettingsWindow:
         nb.add(scroll_frame, text="Scroll")
         self._scroll_vars: dict[str, tk.Variable] = {}
         self._build_scroll_tab(scroll_frame)
+
+        # --- Gesture Bindings tab ---
+        bindings_frame = ttk.Frame(nb, padding=10)
+        nb.add(bindings_frame, text="Gesture Bindings")
+        self._build_bindings_tab(bindings_frame)
 
         # --- Buttons ---
         btn_frame = ttk.Frame(win)
@@ -934,6 +950,225 @@ class SettingsWindow:
         ).grid(row=nd_row, column=0, columnspan=3, sticky="w", pady=(8, 3))
         frame.columnconfigure(2, weight=1)
 
+    # ------------------------------------------------------------------
+    # Gesture Bindings tab
+    # ------------------------------------------------------------------
+
+    _FINGER_OPTIONS = ("any", "folded", "extended")
+    _MOVEMENT_OPTIONS = ("none", "left", "right", "up", "down")
+    _TRIGGER_OPTIONS = ("enter", "hold_repeat", "release")
+    _HAND_OPTIONS = ("either", "control", "secondary", "left", "right")
+
+    def _build_bindings_tab(self, frame: ttk.Frame) -> None:
+        """Build a list + detail form UI for editing gesture bindings."""
+        # Working copy so Cancel discards changes
+        import copy
+
+        self._bindings_work: list[GestureBinding] = copy.deepcopy(self._config.gesture_bindings)
+
+        # Left: binding list
+        list_frame = ttk.Frame(frame)
+        list_frame.grid(row=0, column=0, sticky="ns", padx=(0, 8))
+        frame.rowconfigure(0, weight=1)
+        frame.columnconfigure(1, weight=1)
+
+        ttk.Label(list_frame, text="Bindings", font=("TkDefaultFont", 0, "bold")).pack(anchor="w")
+        self._binding_listbox = tk.Listbox(
+            list_frame, activestyle="dotbox", exportselection=False, width=22, height=12
+        )
+        self._binding_listbox.pack(fill="y", expand=True)
+        self._binding_listbox.bind("<<ListboxSelect>>", self._on_binding_select)
+
+        btn_row = ttk.Frame(list_frame)
+        btn_row.pack(fill="x", pady=(4, 0))
+        ttk.Button(btn_row, text="New", command=self._binding_new, width=6).pack(
+            side="left", padx=(0, 2)
+        )
+        ttk.Button(btn_row, text="Delete", command=self._binding_delete, width=6).pack(side="left")
+
+        # Right: detail form
+        detail = ttk.LabelFrame(frame, text="Binding details", padding=8)
+        detail.grid(row=0, column=1, sticky="nsew")
+
+        rows_def: list[tuple[str, str]] = [
+            ("ID", "id"),
+            ("Hand", "hand"),
+            ("Thumb", "thumb"),
+            ("Index", "index"),
+            ("Middle", "middle"),
+            ("Ring", "ring"),
+            ("Pinky", "pinky"),
+            ("Movement", "movement"),
+            ("Trigger", "trigger"),
+            ("Threshold", "threshold"),
+            ("Hold (ms)", "hold_ms"),
+            ("Cooldown (ms)", "cooldown_ms"),
+            ("Sensitivity", "sensitivity"),
+            ("Action ID", "action_id"),
+        ]
+        self._bfield_vars: dict[str, tk.Variable] = {}
+        combo_options: dict[str, tuple[str, ...]] = {
+            "hand": self._HAND_OPTIONS,
+            "thumb": self._FINGER_OPTIONS,
+            "index": self._FINGER_OPTIONS,
+            "middle": self._FINGER_OPTIONS,
+            "ring": self._FINGER_OPTIONS,
+            "pinky": self._FINGER_OPTIONS,
+            "movement": self._MOVEMENT_OPTIONS,
+            "trigger": self._TRIGGER_OPTIONS,
+        }
+        for row_idx, (label, attr) in enumerate(rows_def):
+            ttk.Label(detail, text=label + ":", anchor="e").grid(
+                row=row_idx, column=0, sticky="e", pady=2, padx=(0, 6)
+            )
+            if attr in ("threshold", "sensitivity"):
+                var: tk.Variable = tk.DoubleVar()
+                ttk.Spinbox(
+                    detail, textvariable=var, from_=0.0, to=5.0, increment=0.01, width=12
+                ).grid(row=row_idx, column=1, sticky="w", pady=2)
+            elif attr in ("hold_ms", "cooldown_ms"):
+                var = tk.IntVar()
+                ttk.Spinbox(
+                    detail, textvariable=var, from_=0, to=10000, increment=50, width=12
+                ).grid(row=row_idx, column=1, sticky="w", pady=2)
+            elif attr in combo_options:
+                var = tk.StringVar()
+                ttk.Combobox(
+                    detail,
+                    textvariable=var,
+                    values=combo_options[attr],
+                    state="readonly",
+                    width=12,
+                ).grid(row=row_idx, column=1, sticky="w", pady=2)
+            else:
+                var = tk.StringVar()
+                ttk.Entry(detail, textvariable=var, width=18).grid(
+                    row=row_idx, column=1, sticky="ew", pady=2
+                )
+            self._bfield_vars[attr] = var
+
+        # Enabled checkbox
+        en_row = len(rows_def)
+        self._binding_enabled_var = tk.BooleanVar()
+        ttk.Checkbutton(
+            detail,
+            text="Enabled (activate this binding)",
+            variable=self._binding_enabled_var,
+        ).grid(row=en_row, column=0, columnspan=2, sticky="w", pady=(8, 0))
+
+        ttk.Button(detail, text="Save binding", command=self._binding_save).grid(
+            row=en_row + 1, column=0, columnspan=2, sticky="w", pady=(8, 0)
+        )
+        detail.columnconfigure(1, weight=1)
+
+        # Validation error label at bottom
+        self._binding_error_var = tk.StringVar()
+        ttk.Label(
+            frame,
+            textvariable=self._binding_error_var,
+            foreground="red",
+            wraplength=380,
+            justify="left",
+        ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(6, 0))
+
+        self._refresh_binding_list()
+        self._current_binding_idx: int | None = None
+
+    def _refresh_binding_list(self) -> None:
+        lb = self._binding_listbox
+        lb.delete(0, tk.END)
+        for b in self._bindings_work:
+            prefix = "[on] " if b.enabled else "[off]"
+            lb.insert(tk.END, f"{prefix} {b.id or '(unnamed)'}")
+        self._validate_bindings_display()
+
+    def _validate_bindings_display(self) -> None:
+        errors = validate_gesture_bindings(self._bindings_work)
+        if errors:
+            self._binding_error_var.set(
+                "Validation: " + "; ".join(errors[:3]) + (" (…more)" if len(errors) > 3 else "")
+            )
+        else:
+            self._binding_error_var.set("")
+
+    def _on_binding_select(self, _event: tk.Event[tk.Listbox]) -> None:
+        sel = self._binding_listbox.curselection()  # type: ignore[no-untyped-call]
+        if not sel:
+            return
+        idx = int(sel[0])
+        if idx < 0 or idx >= len(self._bindings_work):
+            return
+        self._current_binding_idx = idx
+        b = self._bindings_work[idx]
+        fv = self._bfield_vars
+        fv["id"].set(b.id)
+        fv["hand"].set(b.hand)
+        fv["thumb"].set(b.thumb)
+        fv["index"].set(b.index)
+        fv["middle"].set(b.middle)
+        fv["ring"].set(b.ring)
+        fv["pinky"].set(b.pinky)
+        fv["movement"].set(b.movement)
+        fv["trigger"].set(b.trigger)
+        fv["threshold"].set(b.threshold)
+        fv["hold_ms"].set(b.hold_ms)
+        fv["cooldown_ms"].set(b.cooldown_ms)
+        fv["sensitivity"].set(b.sensitivity)
+        fv["action_id"].set(b.action_id)
+        self._binding_enabled_var.set(b.enabled)
+
+    def _binding_save(self) -> None:
+        idx = self._current_binding_idx
+        if idx is None or idx >= len(self._bindings_work):
+            return
+        fv = self._bfield_vars
+        try:
+            new_b = GestureBinding(
+                id=str(fv["id"].get()).strip(),  # type: ignore[no-untyped-call]
+                enabled=bool(self._binding_enabled_var.get()),
+                hand=str(fv["hand"].get()),  # type: ignore[no-untyped-call]
+                thumb=str(fv["thumb"].get()),  # type: ignore[no-untyped-call]
+                index=str(fv["index"].get()),  # type: ignore[no-untyped-call]
+                middle=str(fv["middle"].get()),  # type: ignore[no-untyped-call]
+                ring=str(fv["ring"].get()),  # type: ignore[no-untyped-call]
+                pinky=str(fv["pinky"].get()),  # type: ignore[no-untyped-call]
+                movement=str(fv["movement"].get()),  # type: ignore[no-untyped-call]
+                trigger=str(fv["trigger"].get()),  # type: ignore[no-untyped-call]
+                threshold=float(fv["threshold"].get()),  # type: ignore[no-untyped-call]
+                hold_ms=int(fv["hold_ms"].get()),  # type: ignore[no-untyped-call]
+                cooldown_ms=int(fv["cooldown_ms"].get()),  # type: ignore[no-untyped-call]
+                sensitivity=float(fv["sensitivity"].get()),  # type: ignore[no-untyped-call]
+                action_id=str(fv["action_id"].get()).strip(),  # type: ignore[no-untyped-call]
+            )
+        except (ValueError, tk.TclError):
+            self._binding_error_var.set("Invalid field value — check numeric fields.")
+            return
+        self._bindings_work[idx] = new_b
+        self._refresh_binding_list()
+
+    def _binding_new(self) -> None:
+        import uuid
+
+        new_b = GestureBinding(id=f"binding_{uuid.uuid4().hex[:6]}", enabled=False)
+        self._bindings_work.append(new_b)
+        self._refresh_binding_list()
+        self._binding_listbox.selection_clear(0, tk.END)
+        last_idx = len(self._bindings_work) - 1
+        self._binding_listbox.selection_set(last_idx)
+        self._binding_listbox.see(last_idx)
+        self._current_binding_idx = last_idx
+        self._on_binding_select(tk.Event())
+
+    def _binding_delete(self) -> None:
+        sel = self._binding_listbox.curselection()  # type: ignore[no-untyped-call]
+        if not sel:
+            return
+        idx = int(sel[0])
+        if 0 <= idx < len(self._bindings_work):
+            del self._bindings_work[idx]
+            self._current_binding_idx = None
+            self._refresh_binding_list()
+
     def _apply(self) -> None:
         """Write UI values into the live config and persist."""
         g = self._config.gestures
@@ -965,6 +1200,10 @@ class SettingsWindow:
             g.scroll_dead_zone = max(0.0, min(0.1, g.scroll_dead_zone))
             g.scroll_units_per_step = max(1, min(20, g.scroll_units_per_step))
 
+            # Gesture bindings — persist working copy
+            if hasattr(self, "_bindings_work"):
+                self._config.gesture_bindings = list(self._bindings_work)
+
             save_config(self._config, self._config_path)
         except (ValueError, tk.TclError):
             pass
@@ -972,7 +1211,7 @@ class SettingsWindow:
 
     def _reset(self) -> None:
         """Reload defaults into the UI widgets (does not persist until Apply)."""
-        from airpilot.config import CursorConfig, GestureConfig
+        from airpilot.config import CursorConfig, GestureConfig, _default_gesture_bindings
 
         dg = GestureConfig()
         dc = CursorConfig()
@@ -990,6 +1229,13 @@ class SettingsWindow:
         sv["Scroll dead zone"].set(dg.scroll_dead_zone)
         sv["Units per step"].set(dg.scroll_units_per_step)
         self._natural_dir_var.set(dg.scroll_natural_direction)
+
+        if hasattr(self, "_bindings_work"):
+            import copy
+
+            self._bindings_work = copy.deepcopy(_default_gesture_bindings())
+            self._current_binding_idx = None
+            self._refresh_binding_list()
 
 
 class _TkHelpBackend:
@@ -1359,17 +1605,31 @@ class OverlayLine:
 
 
 def _layout_overlay(lines: Sequence[str], width: int) -> list[OverlayLine]:
+    """Lay out overlay text lines with compact scales for 640×480 readability.
+
+    Line 0 (headline): scale 0.52, height 22 px.
+    Line 1 (guidance): scale 0.40, height 18 px.
+    Lines 2+ (detail): scale 0.38, height 18 px.
+    The banner covers only the first two lines; detail lines are drawn below
+    via shadow text so they remain readable over the camera image.
+    """
     padded_width = max(width - 24, 40)
     layout: list[OverlayLine] = []
-    y = 26
+    y = 22
     for index, text in enumerate(lines):
-        # Compact scales: headline=0.60, guidance=0.46, detail/controls=0.44
-        scale = 0.60 if index == 0 else 0.46 if index == 1 else 0.44
-        line_height = 24 if index == 0 else 20
+        if index == 0:
+            scale = 0.52
+            line_height = 22
+        elif index == 1:
+            scale = 0.40
+            line_height = 18
+        else:
+            scale = 0.38
+            line_height = 18
         layout.append(
             OverlayLine(
                 text=_fit_text(text, padded_width, scale=scale),
-                x=12,
+                x=10,
                 y=y,
                 scale=scale,
             )
@@ -1402,6 +1662,12 @@ def _draw_banner(
     paused: bool,
     mouse_output_locked: bool = False,
 ) -> None:
+    """Draw the compact state banner covering only headline + guidance lines.
+
+    The banner is intentionally small (≈ first-two-lines height) so that
+    most of the 640×480 camera frame remains visible.  Detail lines are
+    rendered outside the banner via shadow text in :func:`_draw_status`.
+    """
     if mouse_output_locked:
         color = (120, 80, 0)
     elif paused:
@@ -1410,7 +1676,14 @@ def _draw_banner(
         color = (0, 140, 0)
     else:
         color = (0, 80, 180)
-    banner_height = min(max(layout[-1].y + 12 if layout else 64, 78), int(image.shape[0]))
+    # Cover only lines 0 and 1 so the banner stays compact.
+    if len(layout) >= 2:
+        banner_height = layout[1].y + 10
+    elif layout:
+        banner_height = layout[0].y + 10
+    else:
+        banner_height = 40
+    banner_height = min(max(banner_height, 32), int(image.shape[0]))
     cv2.rectangle(image, (0, 0), (int(image.shape[1]), banner_height), color, thickness=-1)
     for line in layout[:2]:
         cv2.putText(
@@ -1420,7 +1693,7 @@ def _draw_banner(
             cv2.FONT_HERSHEY_SIMPLEX,
             line.scale,
             (255, 255, 255),
-            2,
+            1,
             cv2.LINE_AA,
         )
 

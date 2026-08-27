@@ -503,6 +503,25 @@
     "sensitivity": 1.35,
     "smoothing_alpha": 0.42
   },
+  "gesture_bindings": [
+    {
+      "action_id": "presentation.next_slide",
+      "cooldown_ms": 600,
+      "enabled": false,
+      "hand": "either",
+      "hold_ms": 0,
+      "id": "ppt_next_slide_gesture",
+      "index": "folded",
+      "middle": "any",
+      "movement": "right",
+      "pinky": "any",
+      "ring": "any",
+      "sensitivity": 1.0,
+      "threshold": 0.04,
+      "thumb": "folded",
+      "trigger": "enter"
+    }
+  ],
   "gestures": {
     "action_cooldown_ms": 700,
     "arm_gesture_enabled": true,

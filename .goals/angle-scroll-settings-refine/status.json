@@ -1,7 +1,7 @@
 {
   "goal_id": "angle-scroll-settings-refine",
-  "status": "needs_revision",
-  "iteration": 1,
+  "status": "building",
+  "iteration": 2,
   "builder_model": "Claude:Sonnet-4.6",
   "inspector_model": "Claude:Haiku-4.5",
   "initial_sha": "dd140e42584071f0eff5f9ddab1c619a160793f6",
@@ -12,6 +12,12 @@
       "verdict": "FAIL",
       "inspected_at": "2026-08-27T18:30:00.000+03:00",
       "summary": "Core angle-activation, scroll dead zone, settings UI, and config migration implemented and tested (181 pass, ruff/mypy/CI clean). Major unmet criteria: data-driven gesture bindings (criteria 9-11), gesture bindings Settings tab, PowerPoint example, and compact preview panel redesign."
+    },
+    {
+      "iteration": 2,
+      "verdict": "pending",
+      "built_at": "2026-08-27T18:34:48.752+03:00",
+      "summary": "Iteration 2: Added GestureBinding data model + persistence/migration (config.py), GestureBindingMatcher with conflict/cooldown/enter/hold-repeat/release triggers (domain/gestures.py), Gesture Bindings tab in SettingsWindow with validation errors (app.py), compact 2-line banner status panel redesign, disabled PowerPoint next-slide example, and full regression tests (217 pass 1 skip, ruff/mypy/CI clean, packaged EXE verified)."
     }
   ]
 }

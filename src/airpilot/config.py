@@ -2,11 +2,186 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
 CURRENT_SCHEMA_VERSION = 10
+
+# ---------------------------------------------------------------------------
+# Gesture Binding schema (data-driven configurable bindings)
+# ---------------------------------------------------------------------------
+
+VALID_HAND_SELECTIONS: frozenset[str] = frozenset(
+    {"left", "right", "control", "secondary", "either"}
+)
+VALID_FINGER_STATES: frozenset[str] = frozenset({"folded", "extended", "any"})
+VALID_MOVEMENTS: frozenset[str] = frozenset({"none", "left", "right", "up", "down"})
+VALID_TRIGGERS: frozenset[str] = frozenset({"enter", "hold_repeat", "release"})
+
+
+@dataclass(slots=True)
+class GestureBinding:
+    """A data-driven gesture → action binding persisted in config.
+
+    Attributes:
+        id: Unique binding identifier.
+        enabled: Whether the binding is active. Disabled bindings are stored
+            but never evaluated — keep unsafe bindings disabled by default.
+        hand: Which hand to test. "control" = primary tracking hand;
+            "secondary" = second detected hand; "left"/"right" = handedness;
+            "either" = control hand (first available).
+        thumb/index/middle/ring/pinky: Required finger state. "folded" = bent;
+            "extended" = straight; "any" = either.
+        movement: Required hand direction. "none" = any; "left"/"right"/"up"/"down"
+            = displacement exceeds threshold in that direction.
+        trigger: When the action fires. "enter" = once when conditions first met;
+            "hold_repeat" = repeatedly every hold_ms while held; "release" = once
+            on release.
+        threshold: Normalized displacement (0–1) required for movement bindings.
+        hold_ms: Milliseconds before first repeat (hold_repeat) or hold minimum.
+        cooldown_ms: Minimum milliseconds between consecutive firings.
+        sensitivity: Multiplier on threshold (higher = easier to trigger).
+        action_id: Action from the catalog (e.g. "presentation.next_slide").
+    """
+
+    id: str = ""
+    enabled: bool = False
+    hand: str = "either"
+    thumb: str = "any"
+    index: str = "any"
+    middle: str = "any"
+    ring: str = "any"
+    pinky: str = "any"
+    movement: str = "none"
+    trigger: str = "enter"
+    threshold: float = 0.03
+    hold_ms: int = 500
+    cooldown_ms: int = 300
+    sensitivity: float = 1.0
+    action_id: str = ""
+
+
+def _default_gesture_bindings() -> list[GestureBinding]:
+    """Return the default gesture binding list.
+
+    Ships with a single *disabled* example that maps
+    ``thumb folded + index folded + move hand right`` to
+    ``presentation.next_slide`` (PowerPoint / Impress next slide).
+    Enable it deliberately after physical validation.
+    """
+    return [
+        GestureBinding(
+            id="ppt_next_slide_gesture",
+            enabled=False,
+            hand="either",
+            thumb="folded",
+            index="folded",
+            middle="any",
+            ring="any",
+            pinky="any",
+            movement="right",
+            trigger="enter",
+            threshold=0.04,
+            hold_ms=0,
+            cooldown_ms=600,
+            sensitivity=1.0,
+            action_id="presentation.next_slide",
+        )
+    ]
+
+
+def _bindings_from_list(raw: list[Any] | None) -> list[GestureBinding]:
+    """Deserialise a list of raw dicts into GestureBinding objects.
+
+    Unknown keys are silently ignored; malformed entries are skipped.
+    Returns the default list when *raw* is None (absent from saved config).
+    """
+    if raw is None:
+        return _default_gesture_bindings()
+    valid_names = frozenset(f.name for f in fields(GestureBinding))
+    result: list[GestureBinding] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        try:
+            filtered = {k: v for k, v in item.items() if k in valid_names}
+            result.append(GestureBinding(**filtered))
+        except (TypeError, ValueError):
+            pass
+    return result
+
+
+def validate_gesture_bindings(
+    bindings: list[GestureBinding],
+) -> list[str]:
+    """Return a list of human-readable validation error strings (empty = OK)."""
+    errors: list[str] = []
+    seen_ids: set[str] = set()
+    for b in bindings:
+        if not b.id:
+            errors.append("A binding has an empty id.")
+        elif b.id in seen_ids:
+            errors.append(f"Duplicate binding id: {b.id!r}.")
+        else:
+            seen_ids.add(b.id)
+        if b.hand not in VALID_HAND_SELECTIONS:
+            errors.append(f"Binding {b.id!r}: invalid hand {b.hand!r}.")
+        for fname in ("thumb", "index", "middle", "ring", "pinky"):
+            fval = getattr(b, fname)
+            if fval not in VALID_FINGER_STATES:
+                errors.append(f"Binding {b.id!r}: invalid {fname} state {fval!r}.")
+        if b.movement not in VALID_MOVEMENTS:
+            errors.append(f"Binding {b.id!r}: invalid movement {b.movement!r}.")
+        if b.trigger not in VALID_TRIGGERS:
+            errors.append(f"Binding {b.id!r}: invalid trigger {b.trigger!r}.")
+        if b.threshold < 0 or b.threshold > 1:
+            errors.append(f"Binding {b.id!r}: threshold {b.threshold} must be 0–1.")
+        if b.cooldown_ms < 0:
+            errors.append(f"Binding {b.id!r}: cooldown_ms must be ≥ 0.")
+        if b.hold_ms < 0:
+            errors.append(f"Binding {b.id!r}: hold_ms must be ≥ 0.")
+
+    # Conflict detection: enabled bindings with identical match conditions
+    enabled = [b for b in bindings if b.enabled]
+    for i, a in enumerate(enabled):
+        for b_other in enabled[i + 1 :]:
+            if _gesture_bindings_conflict(a, b_other):
+                errors.append(
+                    f"Bindings {a.id!r} and {b_other.id!r} have conflicting "
+                    f"match conditions and may fire simultaneously."
+                )
+    return errors
+
+
+def _gesture_bindings_conflict(a: GestureBinding, b: GestureBinding) -> bool:
+    """Return True if two bindings would match the same gesture simultaneously."""
+    if not _hand_selections_overlap(a.hand, b.hand):
+        return False
+    if a.movement != b.movement or a.trigger != b.trigger:
+        return False
+    return _finger_conditions_overlap(a, b)
+
+
+def _hand_selections_overlap(a: str, b: str) -> bool:
+    if a == "either" or b == "either":
+        return True
+    if a == b:
+        return True
+    # "control" may be either left or right hand — overlaps with both
+    if a == "control" and b in ("left", "right"):
+        return True
+    return b == "control" and a in ("left", "right")
+
+
+def _finger_conditions_overlap(a: GestureBinding, b: GestureBinding) -> bool:
+    for attr in ("thumb", "index", "middle", "ring", "pinky"):
+        af: str = getattr(a, attr)
+        bf: str = getattr(b, attr)
+        if af != bf and af != "any" and bf != "any":
+            return False
+    return True
+
 
 _V4_CURSOR_DEFAULTS = {
     "camera_min_x": 0.08,
@@ -251,6 +426,7 @@ class AppConfig:
     cursor: CursorConfig = field(default_factory=CursorConfig)
     actions: ActionConfig = field(default_factory=ActionConfig)
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
+    gesture_bindings: list[GestureBinding] = field(default_factory=_default_gesture_bindings)
 
 
 def default_config_path() -> Path:
@@ -318,6 +494,7 @@ def _config_from_dict(raw: dict[str, Any]) -> AppConfig:
         cursor=CursorConfig(**_section(raw, "cursor")),
         actions=_actions_from_section(_section(raw, "actions")),
         runtime=RuntimeConfig(**_section(raw, "runtime")),
+        gesture_bindings=_bindings_from_list(raw.get("gesture_bindings")),
     )
 
 
