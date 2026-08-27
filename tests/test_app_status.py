@@ -1,13 +1,16 @@
-import numpy as np
-
 from airpilot.app import (
     ExitReason,
+    HelpBackend,
+    HelpBounds,
     HelpWindow,
     TrackingStats,
     _dispatch_ui_action,
+    _filter_help_sections,
     _handle_keypress,
-    _help_image,
+    _help_initial_bounds,
     _help_lines,
+    _help_sections,
+    _help_text_wrap_mode,
     _preview_window_closed,
     _text_width,
     _wrap_help_lines,
@@ -108,6 +111,20 @@ def test_status_lines_show_paused_armed_and_active_gestures() -> None:
     assert lines[0] == "AIRPILOT - PAUSED"
     assert "Press P to resume" in lines[1]
     assert "dragging" in lines[2]
+
+
+def test_status_lines_show_thumb_folded_clutch_guidance() -> None:
+    frame = TrackingFrame(timestamp_ms=0, width=640, height=480, hand=None)
+
+    lines = status_lines(
+        frame,
+        GestureEvents(active_gesture="clutch", status="clutch"),
+        AppConfig(),
+        armed=True,
+        fps=31.0,
+    )
+
+    assert lines[1] == "Thumb folded: pointer frozen. Open thumb to resume."
 
 
 def test_status_lines_surface_preview_drawing_warning() -> None:
@@ -262,40 +279,33 @@ def test_gesture_arm_respects_mouse_output_lock() -> None:
 
 
 def test_help_window_update_reuses_single_window(monkeypatch: object) -> None:
-    calls: list[str] = []
-    help_window = HelpWindow(visible=True)
-
-    monkeypatch.setattr("airpilot.app.cv2.getWindowProperty", lambda *_args: 1.0)
-    monkeypatch.setattr("airpilot.app.cv2.imshow", lambda title, _image: calls.append(title))
+    del monkeypatch
+    backend = _FakeHelpBackend()
+    help_window = HelpWindow(visible=True, backend_factory=lambda: backend)
 
     help_window.update(AppConfig())
     help_window.update(AppConfig())
 
-    assert calls == ["AirPilot Help", "AirPilot Help"]
+    assert backend.update_count == 2
     assert help_window.visible is True
 
 
 def test_help_window_stays_closed_after_manual_close(monkeypatch: object) -> None:
-    calls: list[str] = []
-    visible_values = iter([0.0])
-    help_window = HelpWindow(visible=True)
-
-    monkeypatch.setattr(
-        "airpilot.app.cv2.getWindowProperty",
-        lambda *_args: next(visible_values),
-    )
-    monkeypatch.setattr("airpilot.app.cv2.imshow", lambda title, _image: calls.append(title))
+    del monkeypatch
+    backend = _FakeHelpBackend(open_after_update=False)
+    help_window = HelpWindow(visible=True, backend_factory=lambda: backend)
 
     help_window.update(AppConfig())
     help_window.update(AppConfig())
 
-    assert calls == ["AirPilot Help"]
+    assert backend.update_count == 1
     assert help_window.visible is False
 
 
-def test_help_content_is_readable_and_renderable() -> None:
+def test_help_content_is_readable_and_structured() -> None:
     lines = _help_lines(AppConfig())
-    image = _help_image(lines)
+    sections = _help_sections(AppConfig())
+    section_titles = {section.title for section in sections}
 
     assert "AirPilot Help" in lines
     assert "QUICK START" in lines
@@ -313,13 +323,43 @@ def test_help_content_is_readable_and_renderable() -> None:
         "Clipboard history | Shortcut mode + hold thumb/middle | Win+V" in line for line in lines
     )
     assert any("Quit AirPilot | Press Q" in line for line in lines)
-    assert isinstance(image, np.ndarray)
-    assert image.shape[0] > 0
-    assert image.shape[0] <= 760
+    assert {"INTRO", "QUICK START", "MOUSE", "CONTROL", "SHORTCUT MODE"} <= section_titles
     wrapped = _wrap_help_lines(lines, 460)
     assert not any(line.endswith("...") for line in wrapped)
     assert any("Win+V" in line for line in wrapped)
     assert all(_text_width(line, 0.55) <= 460 for line in wrapped[2:])
+
+
+def test_help_initial_bounds_fit_monitor_work_area() -> None:
+    work_area = HelpBounds(left=100, top=50, width=800, height=600)
+
+    bounds = _help_initial_bounds(work_area)
+
+    assert bounds.left >= work_area.left
+    assert bounds.top >= work_area.top
+    assert bounds.left + bounds.width <= work_area.left + work_area.width
+    assert bounds.top + bounds.height <= work_area.top + work_area.height
+    assert bounds.width >= 640
+    assert bounds.height >= 420
+
+
+def test_help_initial_bounds_fit_small_monitor_work_area() -> None:
+    work_area = HelpBounds(left=0, top=0, width=500, height=360)
+
+    bounds = _help_initial_bounds(work_area)
+
+    assert bounds.left + bounds.width <= 500
+    assert bounds.top + bounds.height <= 360
+    assert bounds.width >= 320
+    assert bounds.height >= 280
+
+
+def test_help_content_wraps_vertically_without_horizontal_scroll() -> None:
+    sections = _filter_help_sections(_help_sections(AppConfig()), "clipboard")
+
+    assert sections
+    assert _help_text_wrap_mode() == "word"
+    assert any("Clipboard history" in line for section in sections for line in section.lines)
 
 
 def test_help_wrapping_does_not_truncate_long_pipe_fields() -> None:
@@ -382,3 +422,20 @@ def test_tracking_stats_handles_zero_and_out_of_order_timestamps() -> None:
 class _StubEngine:
     def toggle_pause(self) -> GestureEvents:
         return GestureEvents(paused_changed=True, paused=True)
+
+
+class _FakeHelpBackend(HelpBackend):
+    def __init__(self, *, open_after_update: bool = True) -> None:
+        self.update_count = 0
+        self.closed = False
+        self._open_after_update = open_after_update
+
+    def update(self, _config: AppConfig) -> None:
+        self.update_count += 1
+        self.closed = not self._open_after_update
+
+    def close(self) -> None:
+        self.closed = True
+
+    def is_open(self) -> bool:
+        return not self.closed

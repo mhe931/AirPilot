@@ -5,7 +5,7 @@ def test_noop_cursor_feedback_restores_inactive_state() -> None:
     feedback = NoOpCursorFeedback()
 
     feedback.set_control_active(True)
-    assert feedback.active is True
+    assert feedback.active is False
 
     feedback.restore()
     assert feedback.active is False
@@ -16,5 +16,6 @@ def test_cursor_feedback_factory_does_not_override_os_cursor_icon() -> None:
 
     assert isinstance(feedback, NoOpCursorFeedback)
     feedback.set_control_active(True)
+    assert feedback.active is False
     feedback.restore()
     assert feedback.active is False

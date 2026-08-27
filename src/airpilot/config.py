@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-CURRENT_SCHEMA_VERSION = 8
+CURRENT_SCHEMA_VERSION = 9
 
 _V4_CURSOR_DEFAULTS = {
     "camera_min_x": 0.08,
@@ -16,6 +16,10 @@ _V4_CURSOR_DEFAULTS = {
     "sensitivity": 1.0,
     "smoothing_alpha": 0.28,
     "dead_zone_px": 5,
+}
+
+_V8_GESTURE_DEFAULTS = {
+    "thumb_open_threshold": 0.95,
 }
 
 _V5_SCROLL_DEFAULTS = {
@@ -62,7 +66,7 @@ class GestureConfig:
     pause_hold_ms: int = 850
     tracking_loss_grace_ms: int = 250
     thumb_close_threshold: float = 0.72
-    thumb_open_threshold: float = 0.95
+    thumb_open_threshold: float = 0.82
     finger_bend_threshold: float = 1.35
     finger_extend_threshold: float = 1.70
 
@@ -294,6 +298,8 @@ def _config_from_dict(raw: dict[str, Any]) -> AppConfig:
         return _migrate_v6_config(raw)
     if version == 7:
         return _migrate_v7_config(raw)
+    if version == 8:
+        return _migrate_v8_config(raw)
     if version != CURRENT_SCHEMA_VERSION:
         raise ValueError(f"Unsupported AirPilot config schema_version {version!r}")
     return AppConfig(
@@ -432,7 +438,17 @@ def _migrate_v6_config(raw: dict[str, Any]) -> AppConfig:
 def _migrate_v7_config(raw: dict[str, Any]) -> AppConfig:
     return AppConfig(
         schema_version=CURRENT_SCHEMA_VERSION,
-        gestures=_gestures_from_section(_section(raw, "gestures")),
+        gestures=_gestures_from_section(_migrated_v9_gestures(_section(raw, "gestures"))),
+        cursor=CursorConfig(**_section(raw, "cursor")),
+        actions=_actions_from_section(_section(raw, "actions")),
+        runtime=RuntimeConfig(**_section(raw, "runtime")),
+    )
+
+
+def _migrate_v8_config(raw: dict[str, Any]) -> AppConfig:
+    return AppConfig(
+        schema_version=CURRENT_SCHEMA_VERSION,
+        gestures=_gestures_from_section(_migrated_v9_gestures(_section(raw, "gestures"))),
         cursor=CursorConfig(**_section(raw, "cursor")),
         actions=_actions_from_section(_section(raw, "actions")),
         runtime=RuntimeConfig(**_section(raw, "runtime")),
@@ -443,6 +459,15 @@ def _migrated_v6_gestures(raw: dict[str, Any]) -> dict[str, Any]:
     gesture_section = dict(raw)
     defaults = GestureConfig()
     for field_name, old_value in _V5_SCROLL_DEFAULTS.items():
+        if gesture_section.get(field_name) == old_value:
+            gesture_section[field_name] = getattr(defaults, field_name)
+    return gesture_section
+
+
+def _migrated_v9_gestures(raw: dict[str, Any]) -> dict[str, Any]:
+    gesture_section = dict(raw)
+    defaults = GestureConfig()
+    for field_name, old_value in _V8_GESTURE_DEFAULTS.items():
         if gesture_section.get(field_name) == old_value:
             gesture_section[field_name] = getattr(defaults, field_name)
     return gesture_section

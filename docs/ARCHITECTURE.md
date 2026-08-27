@@ -12,8 +12,6 @@ input so the gesture model can be reused across platforms.
 - `display`: reads Windows virtual-desktop geometry for multi-monitor mapping.
 - `actions`: routes deliberate shortcut-mode gestures to semantic action IDs and
   fakeable keyboard shortcut dispatch.
-- `cursor_feedback`: intentionally no-ops cursor icon changes so AirPilot never
-  overrides the global Windows cursor shape.
 - `app`: coordinates runtime, preview UI, status, config, and shutdown.
 
 ## Event Flow
@@ -21,7 +19,6 @@ input so the gesture model can be reused across platforms.
 ```text
 OpenCVCamera -> MediaPipeHandTracker -> GestureEngine -> ActionRouter -> MouseSafetyGate
                                                     -> MouseController / shortcut dispatch
-                                                    -> CursorFeedbackController
                                                     -> OpenCV status preview
 ```
 
@@ -43,8 +40,10 @@ shortcut mode.
 
 Gestures are explicit states rather than one-frame classifications:
 
-- Open-thumb pose tracks the pointer; closed/bent thumb pose clutches and freezes
-  the pointer for click/drag poses.
+- Thumb pose is scored relative to the thumb-side palm axis so left/right hands
+  and in-plane hand rotations use the same geometry: open/abducted thumb tracks
+  the pointer; closed/folded thumb clutches and freezes the pointer for
+  click/drag poses.
 - Clicks require hold and release. A click candidate locks the cursor position so
   hand jitter does not move the click target.
 - Primary left/right/middle clicks use index/middle bend states while clutched.
@@ -61,6 +60,8 @@ Gestures are explicit states rather than one-frame classifications:
   always available, while gesture pause is opt-in to reduce accidental pauses.
 - Real mouse output is gated by an explicit safe/active state and can be armed
   with the preview key or the deliberate second-hand arm gesture.
+- AirPilot never intentionally changes Windows cursor icons or cursor schemes;
+  ordinary preview and Help controls use normal OS cursor behavior.
 - `--no-mouse` and diagnostics lock output off for that run; otherwise `A`
   enables/disables output even if a loaded config had mouse output disabled.
 - Conflicting new primary gestures are canceled rather than emitted as combined

@@ -103,7 +103,7 @@ Controls:
   back into the preview and closing the app.
 - `p`: pause/resume while the preview window is focused.
 - `a`: arm/disarm real mouse output while the preview window is focused.
-- `h`: show/hide the separate gesture and action help window.
+- `h`: show/hide the native, resizable gesture and action Help window.
 - Move the real pointer to a screen corner to trigger PyAutoGUI's failsafe.
 
 If your webcam feed is already non-mirrored at the driver level, you can change
@@ -112,9 +112,10 @@ If your webcam feed is already non-mirrored at the driver level, you can change
 Default gestures:
 
 - Second-hand thumb + middle hold: arm AirPilot from the disarmed startup state.
-- Thumb open: pointer follows a stable control-hand palm/knuckle anchor, so
-  bending index or middle fingers does not pull the cursor away from the target.
-- Thumb closed/bent: clutch/freeze the pointer.
+- Thumb open/extended away from the palm: pointer follows a stable control-hand
+  palm/knuckle anchor, even if the index or middle finger is bent.
+- Thumb closed/bent toward the palm: clutch/freeze the pointer immediately.
+  Opening the thumb resumes from the frozen target without jumping.
 - While clutched, bend and release index: left click at the frozen target.
 - While clutched, hold bent index and move deliberately: drag; release to drop.
 - While clutched, bend and release middle: right click.
@@ -165,6 +166,10 @@ powershell -ExecutionPolicy Bypass -File scripts/package_windows.ps1
 The unsigned executable is written under `dist\AirPilot`. Code signing and
 installer polish are not complete yet. If the webcam briefly disconnects,
 AirPilot now retries reopening the same camera index before failing.
+
+AirPilot does not intentionally replace, decorate, animate, or globally modify
+the Windows mouse cursor. Cursor feedback is limited to the preview/status and
+Help UI.
 
 ## Troubleshooting Unexpected Closes
 

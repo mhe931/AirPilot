@@ -15,7 +15,7 @@ class NoOpCursorFeedback:
     active: bool = False
 
     def set_control_active(self, active: bool) -> None:
-        self.active = active
+        self.active = False
 
     def restore(self) -> None:
         self.active = False

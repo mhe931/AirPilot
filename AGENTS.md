@@ -91,8 +91,8 @@ powershell -ExecutionPolicy Bypass -File scripts/package_windows.ps1
   unless the run was intentionally started with `--no-mouse` or diagnostics.
 - Mouse activation can also be armed with a deliberate second-hand thumb-middle
   hold from the disarmed startup state.
-- Cursor feedback intentionally no-ops global Windows cursor icon changes;
-  active state stays in AirPilot preview/help UI.
+- AirPilot does not intentionally change Windows cursor icons or cursor schemes;
+  active state stays in AirPilot preview/Help UI.
 - CI workflow for formatting, linting, typing, and tests.
 - Android feasibility document.
 - PyInstaller one-dir package builds and packaged CLI camera listing detects
@@ -106,13 +106,14 @@ powershell -ExecutionPolicy Bypass -File scripts/package_windows.ps1
   risky shortcuts disabled by default.
 - Clipboard History (`clipboard.history` / `Win+V`) is enabled by default through
   shortcut-mode thumb-middle hold.
-- Primary mouse gestures use pose/clutch semantics: thumb open tracks, thumb
-  closed/bent freezes the pointer, clutched index bend/release clicks or drags,
-  and clutched middle bend/release maps to right or middle click.
-- The preview stays compact; full gesture/action help opens in a separate window
-  with `H` or a deliberate second-hand thumb-index hold, and contains a
-  glanceable quick-start dashboard, mappings, action catalog, Task View guidance,
-  and safety notes.
+- Primary mouse gestures use pose/clutch semantics: thumb open/extended away
+  from the palm tracks with a stable palm/knuckle anchor, thumb closed/folded
+  toward the palm freezes the pointer, clutched index bend/release clicks or
+  drags, and clutched middle bend/release maps to right or middle click.
+- The preview stays compact; full gesture/action Help opens in a native
+  resizable Windows-style window with `H` or a deliberate second-hand
+  thumb-index hold, and contains a glanceable quick-start dashboard, mappings,
+  action catalog, Task View guidance, filtering, and safety notes.
 - Scroll uses thumb-ring pinch plus accumulated vertical wrist movement with
   configurable sensitivity/cooldown while suppressing pointer movement.
 - Gesture pause is disabled by default to prevent accidental `PAUSED`; keyboard
@@ -132,9 +133,11 @@ powershell -ExecutionPolicy Bypass -File scripts/package_windows.ps1
 
 ## Known Issues
 
-- Manual validation is still required for thumb-open tracking, thumb-closed
-  clutch, index/middle bend clicks, drag, arm gesture, Help glanceability, Task
-  View, scroll up/down/control, Clipboard History, long-run stability, and feel.
+- Manual validation is still required for thumb-only tracking/freeze semantics,
+  index/middle independence from pointer freeze, index/middle bend clicks, drag,
+  arm gesture, native Help window fit/scroll/wrap, normal Windows cursor
+  appearance, Task View, scroll up/down/control, Clipboard History, long-run
+  stability, and feel.
 - Packaged executable is unsigned.
 - Camera unplug/replug recovery now retries reopening the same camera index, but
   recovery still depends on Windows presenting the device again on that index.

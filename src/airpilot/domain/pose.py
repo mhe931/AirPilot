@@ -7,6 +7,7 @@ from airpilot.domain.types import HandLandmarks, Landmark
 
 WRIST = 0
 THUMB_TIP = 4
+THUMB_MCP = 2
 INDEX_MCP = 5
 INDEX_PIP = 6
 INDEX_TIP = 8
@@ -114,7 +115,7 @@ def estimate_hand_pose(
         return HandPose(False, scale, 0.0, False, False, neutral, neutral, neutral, neutral)
 
     palm = _palm_center(hand.landmarks)
-    thumb_score = _distance(hand.landmarks[THUMB_TIP], palm) / scale
+    thumb_score = _thumb_open_score(hand.landmarks, palm, scale)
     thumb_closed = thumb_score <= thumb_close_threshold
     thumb_open = thumb_score >= thumb_open_threshold
     return HandPose(
@@ -210,6 +211,25 @@ def _palm_center(landmarks: tuple[Landmark, ...]) -> Landmark:
         z=sum(point.z for point in points) / len(points),
         visibility=min(point.visibility for point in points),
     )
+
+
+def _thumb_open_score(
+    landmarks: tuple[Landmark, ...],
+    palm: Landmark,
+    scale: float,
+) -> float:
+    thumb_side_x = landmarks[THUMB_MCP].x - palm.x
+    thumb_side_y = landmarks[THUMB_MCP].y - palm.y
+    thumb_side_length = hypot(thumb_side_x, thumb_side_y)
+    if thumb_side_length <= 0.001:
+        return _distance(landmarks[THUMB_TIP], palm) / scale
+
+    tip_x = landmarks[THUMB_TIP].x - palm.x
+    tip_y = landmarks[THUMB_TIP].y - palm.y
+    side_projection = (tip_x * thumb_side_x + tip_y * thumb_side_y) / thumb_side_length
+    distance_score = _distance(landmarks[THUMB_TIP], palm) / scale
+    side_score = side_projection / scale
+    return max(distance_score if side_score > 0 else 0.0, side_score)
 
 
 def _distance(first: Landmark, second: Landmark) -> float:
