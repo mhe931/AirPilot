@@ -1,21 +1,522 @@
 {
-  "schema_version": 3,
+  "actions": {
+    "catalog": {
+      "browser.back": {
+        "enabled": false,
+        "keys": [
+          "alt",
+          "left"
+        ],
+        "label": "Back",
+        "profile": "browser",
+        "risky": false
+      },
+      "browser.close_tab": {
+        "enabled": false,
+        "keys": [
+          "ctrl",
+          "w"
+        ],
+        "label": "Close tab",
+        "profile": "browser",
+        "risky": true
+      },
+      "browser.forward": {
+        "enabled": false,
+        "keys": [
+          "alt",
+          "right"
+        ],
+        "label": "Forward",
+        "profile": "browser",
+        "risky": false
+      },
+      "browser.new_tab": {
+        "enabled": false,
+        "keys": [
+          "ctrl",
+          "t"
+        ],
+        "label": "New tab",
+        "profile": "browser",
+        "risky": false
+      },
+      "browser.next_tab": {
+        "enabled": false,
+        "keys": [
+          "ctrl",
+          "tab"
+        ],
+        "label": "Next tab",
+        "profile": "browser",
+        "risky": false
+      },
+      "browser.previous_tab": {
+        "enabled": false,
+        "keys": [
+          "ctrl",
+          "shift",
+          "tab"
+        ],
+        "label": "Previous tab",
+        "profile": "browser",
+        "risky": false
+      },
+      "browser.refresh": {
+        "enabled": false,
+        "keys": [
+          "f5"
+        ],
+        "label": "Refresh",
+        "profile": "browser",
+        "risky": false
+      },
+      "browser.reopen_tab": {
+        "enabled": false,
+        "keys": [
+          "ctrl",
+          "shift",
+          "t"
+        ],
+        "label": "Reopen tab",
+        "profile": "browser",
+        "risky": false
+      },
+      "clipboard.copy": {
+        "enabled": true,
+        "keys": [
+          "ctrl",
+          "c"
+        ],
+        "label": "Copy",
+        "profile": "editing",
+        "risky": false
+      },
+      "clipboard.cut": {
+        "enabled": false,
+        "keys": [
+          "ctrl",
+          "x"
+        ],
+        "label": "Cut",
+        "profile": "editing",
+        "risky": false
+      },
+      "clipboard.history": {
+        "enabled": true,
+        "keys": [
+          "win",
+          "v"
+        ],
+        "label": "Clipboard history",
+        "profile": "editing",
+        "risky": false
+      },
+      "clipboard.paste": {
+        "enabled": true,
+        "keys": [
+          "ctrl",
+          "v"
+        ],
+        "label": "Paste",
+        "profile": "editing",
+        "risky": false
+      },
+      "desktop.next": {
+        "enabled": false,
+        "keys": [
+          "ctrl",
+          "win",
+          "right"
+        ],
+        "label": "Next desktop",
+        "profile": "windows",
+        "risky": false
+      },
+      "desktop.previous": {
+        "enabled": false,
+        "keys": [
+          "ctrl",
+          "win",
+          "left"
+        ],
+        "label": "Previous desktop",
+        "profile": "windows",
+        "risky": false
+      },
+      "desktop.task_view": {
+        "enabled": false,
+        "keys": [
+          "win",
+          "tab"
+        ],
+        "label": "Task view",
+        "profile": "windows",
+        "risky": false
+      },
+      "editing.find": {
+        "enabled": false,
+        "keys": [
+          "ctrl",
+          "f"
+        ],
+        "label": "Find",
+        "profile": "editing",
+        "risky": false
+      },
+      "editing.redo": {
+        "enabled": false,
+        "keys": [
+          "ctrl",
+          "y"
+        ],
+        "label": "Redo",
+        "profile": "editing",
+        "risky": false
+      },
+      "editing.save": {
+        "enabled": false,
+        "keys": [
+          "ctrl",
+          "s"
+        ],
+        "label": "Save",
+        "profile": "editing",
+        "risky": false
+      },
+      "editing.select_all": {
+        "enabled": false,
+        "keys": [
+          "ctrl",
+          "a"
+        ],
+        "label": "Select all",
+        "profile": "editing",
+        "risky": false
+      },
+      "editing.undo": {
+        "enabled": false,
+        "keys": [
+          "ctrl",
+          "z"
+        ],
+        "label": "Undo",
+        "profile": "editing",
+        "risky": false
+      },
+      "media.mute": {
+        "enabled": false,
+        "keys": [
+          "volumemute"
+        ],
+        "label": "Mute",
+        "profile": "media",
+        "risky": false
+      },
+      "media.next": {
+        "enabled": false,
+        "keys": [
+          "nexttrack"
+        ],
+        "label": "Next media",
+        "profile": "media",
+        "risky": false
+      },
+      "media.play_pause": {
+        "enabled": false,
+        "keys": [
+          "playpause"
+        ],
+        "label": "Play/pause",
+        "profile": "media",
+        "risky": false
+      },
+      "media.previous": {
+        "enabled": false,
+        "keys": [
+          "prevtrack"
+        ],
+        "label": "Previous media",
+        "profile": "media",
+        "risky": false
+      },
+      "media.volume_down": {
+        "enabled": false,
+        "keys": [
+          "volumedown"
+        ],
+        "label": "Volume down",
+        "profile": "media",
+        "risky": false
+      },
+      "media.volume_up": {
+        "enabled": false,
+        "keys": [
+          "volumeup"
+        ],
+        "label": "Volume up",
+        "profile": "media",
+        "risky": false
+      },
+      "presentation.exit": {
+        "enabled": false,
+        "keys": [
+          "esc"
+        ],
+        "label": "Exit slideshow",
+        "profile": "presentation",
+        "risky": false
+      },
+      "presentation.next_slide": {
+        "enabled": true,
+        "keys": [
+          "right"
+        ],
+        "label": "Next slide",
+        "profile": "presentation",
+        "risky": false
+      },
+      "presentation.previous_slide": {
+        "enabled": true,
+        "keys": [
+          "left"
+        ],
+        "label": "Previous slide",
+        "profile": "presentation",
+        "risky": false
+      },
+      "presentation.start": {
+        "enabled": false,
+        "keys": [
+          "f5"
+        ],
+        "label": "Start slideshow",
+        "profile": "presentation",
+        "risky": false
+      },
+      "system.explorer": {
+        "enabled": false,
+        "keys": [
+          "win",
+          "e"
+        ],
+        "label": "File Explorer",
+        "profile": "windows",
+        "risky": false
+      },
+      "system.lock": {
+        "enabled": false,
+        "keys": [
+          "win",
+          "l"
+        ],
+        "label": "Lock workstation",
+        "profile": "windows",
+        "risky": true
+      },
+      "system.search": {
+        "enabled": false,
+        "keys": [
+          "win",
+          "s"
+        ],
+        "label": "Search",
+        "profile": "windows",
+        "risky": false
+      },
+      "system.settings": {
+        "enabled": false,
+        "keys": [
+          "win",
+          "i"
+        ],
+        "label": "Settings",
+        "profile": "windows",
+        "risky": false
+      },
+      "system.show_desktop": {
+        "enabled": false,
+        "keys": [
+          "win",
+          "d"
+        ],
+        "label": "Show desktop",
+        "profile": "windows",
+        "risky": false
+      },
+      "system.task_view": {
+        "enabled": true,
+        "keys": [
+          "win",
+          "tab"
+        ],
+        "label": "Open Task View",
+        "profile": "windows",
+        "risky": false
+      },
+      "task_view.cancel": {
+        "enabled": true,
+        "keys": [
+          "esc"
+        ],
+        "label": "Task View cancel",
+        "profile": "windows",
+        "risky": false
+      },
+      "task_view.confirm": {
+        "enabled": true,
+        "keys": [
+          "enter"
+        ],
+        "label": "Task View open selection",
+        "profile": "windows",
+        "risky": false
+      },
+      "task_view.next": {
+        "enabled": true,
+        "keys": [
+          "right"
+        ],
+        "label": "Task View select right",
+        "profile": "windows",
+        "risky": false
+      },
+      "task_view.previous": {
+        "enabled": true,
+        "keys": [
+          "left"
+        ],
+        "label": "Task View select left",
+        "profile": "windows",
+        "risky": false
+      },
+      "ui.arm": {
+        "enabled": true,
+        "keys": [],
+        "label": "Arm AirPilot",
+        "profile": "ui",
+        "risky": false
+      },
+      "ui.toggle_help": {
+        "enabled": true,
+        "keys": [],
+        "label": "Toggle help",
+        "profile": "ui",
+        "risky": false
+      },
+      "window.close": {
+        "enabled": false,
+        "keys": [
+          "alt",
+          "f4"
+        ],
+        "label": "Close window",
+        "profile": "windows",
+        "risky": true
+      },
+      "window.maximize": {
+        "enabled": false,
+        "keys": [
+          "win",
+          "up"
+        ],
+        "label": "Maximize",
+        "profile": "windows",
+        "risky": false
+      },
+      "window.minimize": {
+        "enabled": false,
+        "keys": [
+          "win",
+          "down"
+        ],
+        "label": "Minimize",
+        "profile": "windows",
+        "risky": false
+      },
+      "window.snap_left": {
+        "enabled": false,
+        "keys": [
+          "win",
+          "left"
+        ],
+        "label": "Snap left",
+        "profile": "windows",
+        "risky": false
+      },
+      "window.snap_right": {
+        "enabled": false,
+        "keys": [
+          "win",
+          "right"
+        ],
+        "label": "Snap right",
+        "profile": "windows",
+        "risky": false
+      },
+      "window.switch": {
+        "enabled": true,
+        "keys": [
+          "alt",
+          "tab"
+        ],
+        "label": "Switch app",
+        "profile": "windows",
+        "risky": false
+      },
+      "window.switch_reverse": {
+        "enabled": false,
+        "keys": [
+          "alt",
+          "shift",
+          "tab"
+        ],
+        "label": "Switch app reverse",
+        "profile": "windows",
+        "risky": false
+      }
+    },
+    "enabled": true,
+    "gesture_actions": {
+      "arm_secondary_middle_hold": "ui.arm",
+      "help_secondary_index_hold": "ui.toggle_help",
+      "shortcut_index_release": "clipboard.copy",
+      "shortcut_middle_hold": "clipboard.history",
+      "shortcut_middle_release": "clipboard.paste",
+      "shortcut_pinky_release": "presentation.previous_slide",
+      "shortcut_ring_release": "presentation.next_slide"
+    },
+    "risky_actions_enabled": false,
+    "shortcut_mode_gesture": "secondary_thumb_pinky_hold"
+  },
   "cursor": {
-    "camera_max_x": 0.92,
-    "camera_max_y": 0.88,
-    "camera_min_x": 0.08,
-    "camera_min_y": 0.08,
-    "dead_zone_px": 5,
-    "mirror_x": false,
+    "camera_max_x": 0.84,
+    "camera_max_y": 0.82,
+    "camera_min_x": 0.16,
+    "camera_min_y": 0.12,
+    "dead_zone_px": 3,
+    "mirror_x": true,
     "screen_height": 1080,
+    "screen_left": 0,
+    "screen_top": 0,
     "screen_width": 1920,
-    "sensitivity": 1.0,
-    "smoothing_alpha": 0.28
+    "sensitivity": 1.35,
+    "smoothing_alpha": 0.42
   },
   "gestures": {
+    "action_cooldown_ms": 700,
+    "arm_gesture_enabled": true,
+    "arm_gesture_hold_ms": 1200,
+    "arm_pinch_release_threshold": 0.1,
+    "arm_pinch_threshold": 0.07,
     "click_cooldown_ms": 350,
+    "click_freeze_radius_px": 16,
     "drag_hold_ms": 450,
+    "drag_start_movement_px": 34,
+    "help_gesture_enabled": true,
+    "help_gesture_hold_ms": 900,
     "min_click_hold_ms": 80,
+    "pause_gesture_enabled": false,
     "pause_hold_ms": 850,
     "pause_pinch_release_threshold": 0.095,
     "pause_pinch_threshold": 0.07,
@@ -23,24 +524,34 @@
     "pinch_threshold": 0.055,
     "right_pinch_release_threshold": 0.085,
     "right_pinch_threshold": 0.065,
-    "scroll_activation_y_delta": 0.018,
-    "scroll_pinch_release_threshold": 0.085,
-    "scroll_pinch_threshold": 0.065,
-    "scroll_units_per_step": 3,
+    "scroll_activation_y_delta": 0.012,
+    "scroll_cooldown_ms": 35,
+    "scroll_pinch_release_threshold": 0.13,
+    "scroll_pinch_threshold": 0.085,
+    "scroll_sensitivity": 1.4,
+    "scroll_units_per_step": 2,
+    "shortcut_action_hold_ms": 650,
+    "shortcut_mode_hold_ms": 650,
+    "task_view_confirm_on_release": true,
+    "task_view_mirror_x": true,
+    "task_view_navigation_cooldown_ms": 300,
+    "task_view_navigation_delta": 0.07,
     "tracking_loss_grace_ms": 250
   },
   "runtime": {
+    "camera_index": 0,
     "camera_read_failures_before_error": 10,
     "camera_reconnect_attempts": 6,
     "camera_reconnect_delay_ms": 500,
-    "camera_index": 0,
-    "flip_camera_x": false,
     "draw_landmarks": true,
     "emergency_corner_failsafe": true,
     "enable_real_mouse": true,
+    "flip_camera_x": false,
     "max_camera_index": 4,
+    "show_gesture_help": false,
     "start_armed": false,
     "tracker_detection_confidence": 0.55,
     "tracker_tracking_confidence": 0.55
-  }
+  },
+  "schema_version": 7
 }

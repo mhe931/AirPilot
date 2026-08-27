@@ -3,16 +3,25 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import traceback
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import Path
 from time import perf_counter
 from typing import Protocol
 
 import cv2
+import numpy as np
 import pyautogui
 from cv2.typing import MatLike
 
+from airpilot.actions import (
+    ActionRouter,
+    action_help_lines,
+    dispatch_action,
+    validate_action_config,
+)
 from airpilot.camera import OpenCVCamera, list_cameras
 from airpilot.config import (
     AppConfig,
@@ -22,12 +31,27 @@ from airpilot.config import (
     save_config,
 )
 from airpilot.cursor_feedback import CursorFeedbackController, create_cursor_feedback
+from airpilot.display import create_display_provider
 from airpilot.domain.cursor import CursorMapper
 from airpilot.domain.gestures import GestureEngine
 from airpilot.domain.types import GestureEvents, TrackingFrame
 from airpilot.input import MouseController, PyAutoGuiMouseController
 from airpilot.safety import MouseSafetyGate
 from airpilot.tracking import HandDrawingError, MediaPipeHandTracker
+
+PREVIEW_WINDOW_TITLE = "AirPilot"
+
+
+class ExitReason(StrEnum):
+    USER_QUIT_Q = "user_quit_q"
+    USER_QUIT_ESCAPE = "user_quit_escape"
+    MAIN_WINDOW_CLOSED = "main_window_closed"
+    CAMERA_UNRECOVERABLE = "camera_unrecoverable"
+    FAILSAFE = "failsafe"
+    FATAL_EXCEPTION = "fatal_exception"
+    EXPLICIT_SHUTDOWN = "explicit_shutdown"
+    DIAGNOSTICS_COMPLETE = "diagnostics_complete"
+    UNKNOWN = "unknown"
 
 
 @dataclass(slots=True)
@@ -41,6 +65,7 @@ class TrackingStats:
     max_frame_gap_ms: int = 0
     frame_width: int = 0
     frame_height: int = 0
+    tracking_error_events: int = 0
 
     def observe(self, frame: TrackingFrame, events: GestureEvents) -> None:
         self.frames += 1
@@ -81,9 +106,13 @@ class TrackingStats:
             "hand_acquisition_rate": round(self.hand_acquisition_rate, 3),
             "fps": round(self.fps, 1),
             "tracking_lost_events": self.tracking_lost_events,
+            "tracking_error_events": self.tracking_error_events,
             "max_frame_gap_ms": self.max_frame_gap_ms,
             "hand_observed": self.hand_frames > 0,
         }
+
+    def observe_tracking_error(self) -> None:
+        self.tracking_error_events += 1
 
 
 class PauseController(Protocol):
@@ -122,6 +151,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     persisted_path = default_config_path() if config_path is None else config_path
     stored_schema_version = read_config_schema_version(persisted_path)
     config = load_config(config_path)
+    validate_action_config(config.actions)
     if stored_schema_version != config.schema_version:
         save_config(config, config_path)
 
@@ -159,9 +189,16 @@ def run(
     camera: OpenCVCamera | None = None
     tracker: MediaPipeHandTracker | None = None
     cursor_feedback: CursorFeedbackController | None = None
+    safety: MouseSafetyGate | None = None
+    mouse: MouseController | None = None
     stats = TrackingStats()
     drawing_error: str | None = None
     operator_notice: str | None = None
+    exit_reason = ExitReason.UNKNOWN
+    exit_detail: str | None = None
+    exit_code = 0
+    preview_created = False
+    preview_visible_once = False
 
     try:
         camera = OpenCVCamera(
@@ -175,8 +212,14 @@ def run(
             min_tracking_confidence=config.runtime.tracker_tracking_confidence,
             input_is_mirrored=config.runtime.flip_camera_x,
         )
-        config.cursor.screen_width, config.cursor.screen_height = pyautogui.size()
+        desktop = create_display_provider().virtual_desktop()
+        config.cursor.screen_left = desktop.left
+        config.cursor.screen_top = desktop.top
+        config.cursor.screen_width = desktop.width
+        config.cursor.screen_height = desktop.height
         engine = GestureEngine(config.gestures, CursorMapper(config.cursor))
+        action_router = ActionRouter(config.actions, config.gestures)
+        help_window = HelpWindow(visible=config.runtime.show_gesture_help)
         mouse = PyAutoGuiMouseController(
             emergency_corner_failsafe=config.runtime.emergency_corner_failsafe,
         )
@@ -190,11 +233,53 @@ def run(
         )
         for camera_frame in camera.frames():
             image = _prepare_camera_image(camera_frame.image, config)
-            frame = tracker.track(image, camera_frame.timestamp_ms)
+            try:
+                frame = tracker.track(image, camera_frame.timestamp_ms)
+            except Exception as exc:
+                stats.observe_tracking_error()
+                frame = TrackingFrame(
+                    timestamp_ms=camera_frame.timestamp_ms,
+                    width=camera_frame.width,
+                    height=camera_frame.height,
+                    hand=None,
+                )
+                if stats.tracking_error_events <= 3 or stats.tracking_error_events % 30 == 0:
+                    print(
+                        "AirPilot warning: tracking failed for one frame; "
+                        f"continuing ({type(exc).__name__}: {exc}).",
+                        file=sys.stderr,
+                    )
             events = engine.process(frame)
+            events = action_router.process(frame, events)
+            if events.action_id == "ui.toggle_help":
+                operator_notice = _dispatch_ui_action(events.action_id, help_window)
+            elif events.action_id == "ui.arm":
+                operator_notice = _dispatch_ui_action(
+                    events.action_id,
+                    help_window,
+                    config=config,
+                    safety=safety,
+                    mouse_output_locked=mouse_output_locked,
+                )
             mouse_output_enabled = config.runtime.enable_real_mouse and not mouse_output_locked
             if mouse_output_enabled:
-                safety.apply(mouse, events)
+                try:
+                    safety.apply(mouse, events)
+                    if (
+                        safety.armed
+                        and events.action_id is not None
+                        and not events.action_id.startswith("ui.")
+                    ):
+                        action_label = dispatch_action(config.actions, mouse, events.action_id)
+                        if action_label is not None:
+                            operator_notice = f"ACTION: {action_label}"
+                except pyautogui.FailSafeException as exc:
+                    safety.disarm(mouse)
+                    operator_notice = "Failsafe corner reached; mouse control disarmed"
+                    print(
+                        f"AirPilot warning: {exc}. Mouse control disarmed; continuing.",
+                        file=sys.stderr,
+                    )
             cursor_feedback.set_control_active(
                 mouse_output_enabled
                 and safety.armed
@@ -226,39 +311,82 @@ def run(
                     operator_notice=operator_notice,
                     mouse_output_locked=mouse_output_locked,
                 )
-                cv2.imshow("AirPilot", image)
-                should_exit, operator_notice = _handle_keypress(
+                cv2.imshow(PREVIEW_WINDOW_TITLE, image)
+                preview_created = True
+                key_exit_reason, operator_notice = _handle_keypress(
                     cv2.waitKey(1),
                     config=config,
                     engine=engine,
                     safety=safety,
                     mouse=mouse,
+                    help_window=help_window,
                     mouse_output_locked=mouse_output_locked,
                 )
-                if should_exit:
+                if key_exit_reason is not None:
+                    exit_reason = key_exit_reason
+                    break
+                help_window.update(config)
+                preview_visibility = _preview_window_visibility(
+                    PREVIEW_WINDOW_TITLE,
+                    preview_created=preview_created,
+                )
+                if preview_visibility is True:
+                    preview_visible_once = True
+                elif preview_visibility is False and preview_visible_once:
+                    exit_reason = ExitReason.MAIN_WINDOW_CLOSED
                     break
             if diagnose_seconds is not None and stats.elapsed_seconds >= diagnose_seconds:
                 summary = stats.summary(camera_backend=camera.backend_name)
                 summary["camera_reconnects"] = camera.reconnect_count
                 print(json.dumps(summary, sort_keys=True))
+                exit_reason = ExitReason.DIAGNOSTICS_COMPLETE
                 break
-            if mouse.emergency_stop_requested():
-                break
-    except pyautogui.FailSafeException:
-        print("AirPilot stopped by PyAutoGUI failsafe corner.", file=sys.stderr)
-        return 2
+            try:
+                emergency_stop = mouse.emergency_stop_requested()
+            except pyautogui.FailSafeException as exc:
+                emergency_stop = True
+                exit_detail = str(exc)
+            if emergency_stop:
+                safety.disarm(mouse)
+                operator_notice = "Failsafe corner reached; mouse control disarmed"
+                print(
+                    "AirPilot warning: failsafe corner reached. "
+                    "Mouse control disarmed; continuing.",
+                    file=sys.stderr,
+                )
+    except pyautogui.FailSafeException as exc:
+        exit_reason = ExitReason.FAILSAFE
+        exit_detail = str(exc)
+        exit_code = 2
     except RuntimeError as exc:
-        print(f"AirPilot runtime error: {exc}", file=sys.stderr)
-        return 1
+        exit_reason = (
+            ExitReason.CAMERA_UNRECOVERABLE
+            if "camera" in str(exc).lower()
+            else ExitReason.FATAL_EXCEPTION
+        )
+        exit_detail = str(exc)
+        exit_code = 1
+    except Exception as exc:
+        exit_reason = ExitReason.FATAL_EXCEPTION
+        exit_detail = f"{type(exc).__name__}: {exc}"
+        traceback.print_exc(file=sys.stderr)
+        exit_code = 1
     finally:
         if camera is not None:
             camera.close()
         if tracker is not None:
             tracker.close()
+        if safety is not None and mouse is not None:
+            safety.disarm(mouse)
         if cursor_feedback is not None:
             cursor_feedback.restore()
+        if "help_window" in locals():
+            help_window.close()
         cv2.destroyAllWindows()
-    return 0
+        if exit_reason is ExitReason.UNKNOWN:
+            exit_reason = ExitReason.EXPLICIT_SHUTDOWN
+        _report_exit(exit_reason, exit_detail)
+    return exit_code
 
 
 def status_lines(
@@ -275,10 +403,12 @@ def status_lines(
     hand = frame.hand
     tracking = "hand" if hand is not None else "searching"
     hand_score = f"{hand.confidence:.2f}" if hand is not None else "--"
+    control_hand = hand.handedness.value if hand is not None else "--"
     headline, guidance = _headline_text(
         config=config,
         armed=armed,
         paused=events.paused,
+        events=events,
         operator_notice=operator_notice,
         mouse_output_locked=mouse_output_locked,
     )
@@ -289,10 +419,12 @@ def status_lines(
         guidance,
         (
             f"tracking {tracking} | gesture {events.active_gesture} | "
-            f"hands {hand_count} | hand score {hand_score} | {fps:.1f} fps"
+            f"hands {hand_count} | control {control_hand} | score {hand_score} | {fps:.1f} fps"
         ),
         controls,
     ]
+    if events.action_label is not None:
+        lines.append(f"action {events.action_label}")
     if drawing_error is not None:
         lines.append(f"preview {drawing_error}")
     return lines
@@ -374,7 +506,7 @@ def _prepare_camera_image(image: MatLike, config: AppConfig) -> MatLike:
 def _normalized_key(key: int) -> str | None:
     normalized = key & 0xFF
     if normalized == 27:
-        return "quit"
+        return "escape"
     if 32 <= normalized <= 126:
         return chr(normalized).lower()
     return None
@@ -387,29 +519,84 @@ def _handle_keypress(
     engine: PauseController,
     safety: MouseSafetyGate,
     mouse: MouseController,
+    help_window: HelpWindow | None = None,
     mouse_output_locked: bool = False,
-) -> tuple[bool, str | None]:
+) -> tuple[ExitReason | None, str | None]:
     command = _normalized_key(key)
     if command == "q":
-        return True, "Quit requested"
+        return ExitReason.USER_QUIT_Q, "Quit requested"
     if command == "p":
         pause_events = engine.toggle_pause()
         if config.runtime.enable_real_mouse and not mouse_output_locked:
             safety.apply(mouse, pause_events)
-        return False, "Paused" if pause_events.paused else "Resumed"
+        return None, "Paused" if pause_events.paused else "Resumed"
+    if command == "h":
+        return None, _dispatch_ui_action("ui.toggle_help", help_window)
     if command == "a":
         if mouse_output_locked:
-            return False, "Mouse output disabled for diagnostics/--no-mouse"
+            return None, "Mouse output disabled for diagnostics/--no-mouse"
         if not config.runtime.enable_real_mouse:
             config.runtime.enable_real_mouse = True
         if safety.armed:
             safety.disarm(mouse)
-            return False, "Mouse control disabled"
+            return None, "Mouse control disabled"
         safety.toggle()
-        return False, "Mouse control enabled"
-    if command == "quit":
-        return True, "Quit requested"
-    return False, None
+        return None, "Mouse control enabled"
+    if command == "escape":
+        return None, "Esc ignored; press Q to quit"
+    return None, None
+
+
+def _preview_window_closed(title: str, *, preview_created: bool) -> bool:
+    return _preview_window_visibility(title, preview_created=preview_created) is False
+
+
+def _preview_window_visibility(title: str, *, preview_created: bool) -> bool | None:
+    if not preview_created:
+        return None
+    try:
+        visible = cv2.getWindowProperty(title, cv2.WND_PROP_VISIBLE)
+    except cv2.error:
+        return None
+    if visible >= 1:
+        return True
+    if visible == 0:
+        return False
+    return None
+
+
+def _report_exit(reason: ExitReason, detail: str | None = None) -> None:
+    message = f"AirPilot exit reason: {reason.value}"
+    if detail:
+        message = f"{message} ({detail})"
+    print(message, file=sys.stderr)
+
+
+def _dispatch_ui_action(
+    action_id: str,
+    help_window: HelpWindow | None,
+    *,
+    config: AppConfig | None = None,
+    safety: MouseSafetyGate | None = None,
+    mouse_output_locked: bool = False,
+) -> str | None:
+    if action_id == "ui.toggle_help":
+        if help_window is None:
+            return None
+        visible = help_window.toggle()
+        return "Help opened" if visible else "Help closed"
+    if action_id == "ui.arm":
+        if mouse_output_locked:
+            return "Mouse output disabled for diagnostics/--no-mouse"
+        if safety is None:
+            return "Arm unavailable"
+        if safety.armed:
+            return "Already armed"
+        if config is not None and not config.runtime.enable_real_mouse:
+            config.runtime.enable_real_mouse = True
+        safety.armed = True
+        return "ARMED by gesture"
+    return None
 
 
 def _headline_text(
@@ -417,6 +604,7 @@ def _headline_text(
     config: AppConfig,
     armed: bool,
     paused: bool,
+    events: GestureEvents,
     operator_notice: str | None,
     mouse_output_locked: bool = False,
 ) -> tuple[str, str]:
@@ -428,10 +616,24 @@ def _headline_text(
         guidance = "Press P to resume gesture control"
     elif armed:
         headline = "AIRPILOT - ACTIVE"
-        guidance = "Mouse control enabled"
+        if events.active_gesture == "task_view_pending":
+            guidance = "TASK VIEW - hold index pinch"
+        elif events.active_gesture == "task_view":
+            guidance = "TASK VIEW - move left/right, release to open"
+        elif events.active_gesture == "task_view_select_right":
+            guidance = "TASK VIEW - next app"
+        elif events.active_gesture == "task_view_select_left":
+            guidance = "TASK VIEW - previous app"
+        elif events.active_gesture == "click_candidate":
+            guidance = "CLICK LOCK - release to click, move farther to drag"
+        else:
+            guidance = "Mouse control enabled"
     else:
         headline = "AIRPILOT - DISARMED"
-        guidance = "A = Enable Mouse | Q = Quit"
+        if events.active_gesture == "arm_pending":
+            guidance = "ARMING - hold second-hand thumb + middle"
+        else:
+            guidance = "Hold second-hand thumb+middle to arm | A = arm | Q = quit"
     if operator_notice is not None:
         guidance = operator_notice
     return headline, guidance
@@ -439,8 +641,168 @@ def _headline_text(
 
 def _controls_text(config: AppConfig, *, mouse_output_locked: bool = False) -> str:
     if mouse_output_locked:
-        return "Controls: P = Pause/Resume | Q = Quit | Click preview for keys"
-    return "Controls: A = Arm/Disarm | P = Pause/Resume | Q = Quit | Click preview for keys"
+        return "Controls: P pause | H help | Q quit | Click preview for keys"
+    return "Controls: A arm | P pause | H help | Q quit | Click preview for keys"
+
+
+@dataclass(slots=True)
+class HelpWindow:
+    visible: bool = False
+    title: str = "AirPilot Help"
+    _created: bool = False
+
+    def toggle(self) -> bool:
+        self.visible = not self.visible
+        if not self.visible:
+            self._destroy()
+        else:
+            self._created = False
+        return self.visible
+
+    def update(self, config: AppConfig) -> None:
+        if not self.visible:
+            return
+        if self._created and not self._window_is_open():
+            self.visible = False
+            self._created = False
+            return
+        cv2.imshow(self.title, _help_image(_help_lines(config)))
+        self._created = True
+
+    def close(self) -> None:
+        if self.visible or self._created:
+            self._destroy()
+            self.visible = False
+            self._created = False
+
+    def _window_is_open(self) -> bool:
+        try:
+            visible = cv2.getWindowProperty(self.title, cv2.WND_PROP_VISIBLE)
+        except cv2.error:
+            return False
+        return visible >= 1
+
+    def _destroy(self) -> None:
+        try:
+            cv2.destroyWindow(self.title)
+        except cv2.error:
+            return
+        self._created = False
+
+
+def _help_lines(config: AppConfig) -> list[str]:
+    return ["AirPilot Help", ""] + action_help_lines(config.actions, max_actions=12)
+
+
+def _help_image(lines: Sequence[str]) -> MatLike:
+    width = 1760 if len(lines) > 72 else 1480 if len(lines) > 48 else 860
+    line_height = 18 if len(lines) > 72 else 20
+    column_count = 4 if len(lines) > 72 else 3 if len(lines) > 48 else 1
+    column_width = width // column_count
+    render_lines = _wrap_help_lines(lines, column_width - 32)
+    rows = (len(render_lines) + column_count - 1) // column_count
+    height = max(320, 42 + line_height * rows)
+    image = np.full((height, width, 3), 32, dtype=np.uint8)
+    for index, line in enumerate(render_lines):
+        column = index // rows
+        row = index % rows
+        x = 16 + column * column_width
+        y = 36 + row * line_height
+        scale = 0.75 if index == 0 else 0.55
+        color = (255, 255, 255) if line else (180, 180, 180)
+        if (
+            line.isupper()
+            or line in {"Mouse", "Control"}
+            or line.startswith("Shortcut mode")
+            or line.startswith("Risky")
+        ):
+            color = (120, 220, 255)
+        cv2.putText(
+            image,
+            _fit_text(line, column_width - 32, scale=scale),
+            (x, y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            scale,
+            color,
+            2 if index == 0 else 1,
+            cv2.LINE_AA,
+        )
+    return image
+
+
+def _wrap_help_lines(lines: Sequence[str], max_width: int) -> list[str]:
+    wrapped: list[str] = []
+    for index, line in enumerate(lines):
+        scale = 0.75 if index == 0 else 0.55
+        wrapped.extend(_wrap_help_line(line, max_width, scale=scale))
+    return wrapped
+
+
+def _wrap_help_line(line: str, max_width: int, *, scale: float) -> list[str]:
+    if not line or _text_width(line, scale) <= max_width:
+        return [line]
+    if " | " not in line:
+        return _wrap_text_units(line, max_width, scale=scale)
+
+    parts = line.split(" | ")
+    current = ""
+    wrapped: list[str] = []
+    continuation_prefix = "  "
+    continuation_width = max_width - _text_width(continuation_prefix, scale)
+    for part in parts:
+        candidate = part if not current else f"{current} | {part}"
+        if _text_width(candidate, scale) <= max_width:
+            current = candidate
+            continue
+        if current:
+            wrapped.append(current)
+        part_lines = _wrap_text_units(part, continuation_width, scale=scale)
+        if len(part_lines) == 1:
+            current = f"{continuation_prefix}{part_lines[0]}"
+        else:
+            wrapped.extend(f"{continuation_prefix}{part_line}" for part_line in part_lines[:-1])
+            current = f"{continuation_prefix}{part_lines[-1]}"
+    if current:
+        wrapped.append(current)
+    return wrapped
+
+
+def _wrap_text_units(text: str, max_width: int, *, scale: float) -> list[str]:
+    words = text.split(" ")
+    wrapped: list[str] = []
+    current = ""
+    for word in words:
+        candidate = word if not current else f"{current} {word}"
+        if _text_width(candidate, scale) <= max_width:
+            current = candidate
+            continue
+        if current:
+            wrapped.append(current)
+            current = ""
+        if _text_width(word, scale) <= max_width:
+            current = word
+            continue
+        chunks = _wrap_long_token(word, max_width, scale=scale)
+        wrapped.extend(chunks[:-1])
+        current = chunks[-1] if chunks else ""
+    if current:
+        wrapped.append(current)
+    return wrapped
+
+
+def _wrap_long_token(text: str, max_width: int, *, scale: float) -> list[str]:
+    chunks: list[str] = []
+    current = ""
+    for character in text:
+        candidate = current + character
+        if current and _text_width(candidate, scale) > max_width:
+            chunks.append(current)
+            current = character
+        else:
+            current = candidate
+    if current:
+        chunks.append(current)
+    return chunks
 
 
 @dataclass(frozen=True, slots=True)

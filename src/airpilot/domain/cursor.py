@@ -11,26 +11,15 @@ class CursorMapper:
     config: CursorConfig
     _last: CursorPosition | None = None
 
+    @property
+    def current(self) -> CursorPosition | None:
+        return self._last
+
     def reset(self) -> None:
         self._last = None
 
     def map(self, point: Landmark) -> CursorPosition:
-        normalized_x = self._normalize(
-            point.x,
-            self.config.camera_min_x,
-            self.config.camera_max_x,
-        )
-        normalized_y = self._normalize(
-            point.y,
-            self.config.camera_min_y,
-            self.config.camera_max_y,
-        )
-        if self.config.mirror_x:
-            normalized_x = 1.0 - normalized_x
-
-        x = int(round(normalized_x * (self.config.screen_width - 1)))
-        y = int(round(normalized_y * (self.config.screen_height - 1)))
-        mapped = CursorPosition(x=x, y=y)
+        mapped = self.project(point)
 
         if self._last is None:
             self._last = mapped
@@ -49,10 +38,40 @@ class CursorMapper:
         self._last = self._clamp_position(smoothed)
         return self._last
 
+    def project(self, point: Landmark) -> CursorPosition:
+        normalized_x = self._normalize(
+            point.x,
+            self.config.camera_min_x,
+            self.config.camera_max_x,
+        )
+        normalized_y = self._normalize(
+            point.y,
+            self.config.camera_min_y,
+            self.config.camera_max_y,
+        )
+        if self.config.mirror_x:
+            normalized_x = 1.0 - normalized_x
+
+        x = int(round(self.config.screen_left + normalized_x * (self.config.screen_width - 1)))
+        y = int(round(self.config.screen_top + normalized_y * (self.config.screen_height - 1)))
+        return CursorPosition(x=x, y=y)
+
     def _clamp_position(self, position: CursorPosition) -> CursorPosition:
         return CursorPosition(
-            x=int(self._clamp(position.x, 0, self.config.screen_width - 1)),
-            y=int(self._clamp(position.y, 0, self.config.screen_height - 1)),
+            x=int(
+                self._clamp(
+                    position.x,
+                    self.config.screen_left,
+                    self.config.screen_left + self.config.screen_width - 1,
+                )
+            ),
+            y=int(
+                self._clamp(
+                    position.y,
+                    self.config.screen_top,
+                    self.config.screen_top + self.config.screen_height - 1,
+                )
+            ),
         )
 
     @staticmethod

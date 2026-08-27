@@ -3,19 +3,23 @@
 ## Phase
 
 Phase 1 Windows vertical slice is implemented. Follow-up Windows hardening and
-hardware-tuning work should use short-lived focused feature branches off `main`.
+hardware-tuning work should use short-lived focused branches off `main`, then
+merge and delete them.
 
 ## Repo State
 
 - Remote: `git@github.com:mhe931/AirPilot.git`
 - Default branch: `main`
+- Persistent branch policy: `main` only.
 - Main branch was unprotected when inspected on 2026-08-26.
 - PR #1 and PR #2 were merged when inspected on 2026-08-26.
 - No open issues were present when inspected.
 - PR #3 merged camera reconnect hardening into `main`.
 - PR #4 merged the MediaPipe preview-drawing compatibility fix into `main`.
-- Draft PR #5 contains orientation, activation UX, cursor feedback, and two-hand
-  tracking work.
+- PR #5 merged orientation and arming UX into `main`.
+- PR #6 merged Windows live interaction UX into `main`.
+- PR #7 merged Windows actions, monitor mapping, stability instrumentation, and
+  cleanup into `main`.
 
 ## Completed
 
@@ -23,7 +27,8 @@ hardware-tuning work should use short-lived focused feature branches off `main`.
 - OpenCV webcam capture and camera listing.
 - MediaPipe hand tracking adapter.
 - Gesture state machine with hold thresholds, hysteresis, cooldowns, drag
-  lifecycle, scroll mode, pause/resume, and tracking-loss handling.
+  lifecycle, click-target lock, scroll mode, optional gesture pause/resume, and
+  tracking-loss handling.
 - Cursor mapper with calibration bounds, mirroring, smoothing, sensitivity, and
   dead-zone logic.
 - PyAutoGUI mouse adapter plus fake controller for tests.
@@ -36,19 +41,58 @@ hardware-tuning work should use short-lived focused feature branches off `main`.
   fails, instead of crashing the runtime loop.
 - Default preview orientation is corrected away from selfie mirroring, cursor
   mapping matches that orientation, config schema v3 migrates legacy behavior,
-  and the overlay now shows prominent active/disarmed/paused/preview-only state.
+  and the overlay now shows compact active/disarmed/paused/preview-only state.
 - Up to two MediaPipe hands are tracked; the right hand is preferred as the
   control hand and a secondary hand is retained for future interactions.
 - `A` enables/disables mouse output unless the run is explicitly locked by
   `--no-mouse` or diagnostics, avoiding ambiguous preview-only runtime state.
+- A deliberate second-hand thumb-middle hold can arm AirPilot from the disarmed
+  startup state without reaching for the keyboard.
 - Transient cursor feedback is behind a Windows-specific adapter and restored
   during cleanup.
+- Physical hand-right now maps to pointer-right while keeping the actual camera
+  preview orientation.
+- Win32 virtual-desktop geometry is used for cursor mapping, including negative
+  origins for monitors left or above the primary display.
+- Middle click is available through deliberate thumb-middle hold/release.
+- A separate gesture/action help window is available with `H` or a deliberate
+  second-hand thumb-index hold. The Help window is now a glanceable dashboard
+  with quick-start cards, core gestures, controls, shortcut-mode mappings,
+  grouped action catalog, Task View guidance, and risky-action notes.
+- A configurable shortcut action catalog and two-hand shortcut mode are
+  implemented; risky actions are disabled by default. Clipboard History
+  (`clipboard.history` / `Win+V`) is enabled by default through shortcut-mode
+  thumb-middle hold.
+- Scroll uses a deliberate thumb-ring pinch plus accumulated vertical wrist
+  movement, configurable sensitivity, and a short cooldown for smoother repeated
+  wheel events while suppressing pointer movement.
+- Cursor defaults use a tighter active camera region, higher sensitivity, lighter
+  smoothing, and a small dead zone for more responsive pointer movement.
+- Gesture pause is disabled by default to avoid accidental `PAUSED`; keyboard
+  `P` remains available and the gesture can be re-enabled in config.
+- Thumb-index click candidates freeze the pointer at the intended target;
+  dragging now requires hold plus deliberate movement so long holds do not
+  become accidental drags.
+- The default app-switch flow is now Windows Task View: Shortcut Mode plus
+  thumb-index hold opens `Win+Tab`, hand movement sends left/right navigation,
+  and release confirms with Enter. Alt+Tab remains cataloged but is no longer a
+  default gesture.
 - Config persistence under `%APPDATA%\AirPilot\config.json`.
 - Synthetic tests for gestures, mapping, tracking loss/recovery, config, and
   fake mouse event application.
 - CI workflow, issue templates, PR template, package script, README, AGENTS
   handoff, roadmap, architecture, Android feasibility, and ADRs.
 - PyInstaller one-dir package build under `dist\AirPilot`.
+- Runtime termination now reports explicit terminal-side reasons:
+  `user_quit_q`, `main_window_closed`, `camera_unrecoverable`, `failsafe`,
+  `fatal_exception`, `diagnostics_complete`, `explicit_shutdown`, or `unknown`.
+- `Q` is the canonical AirPilot quit key. `Esc` is intentionally ignored by the
+  preview loop so Task View/system Esc actions cannot close AirPilot through
+  OpenCV key leakage.
+- Transient tracker exceptions are counted as `tracking_error_events` and
+  converted into one frame of tracking loss instead of terminating the loop.
+- PyAutoGUI failsafe disarms mouse output and continues when it fires during
+  normal mouse control.
 
 ## Architecture
 
@@ -56,6 +100,8 @@ hardware-tuning work should use short-lived focused feature branches off `main`.
 - `src/airpilot/camera.py`: OpenCV camera adapter.
 - `src/airpilot/tracking.py`: MediaPipe adapter.
 - `src/airpilot/input.py`: Windows mouse adapter and fake implementation.
+- `src/airpilot/display.py`: Windows virtual-desktop geometry adapter.
+- `src/airpilot/actions.py`: gesture-to-action routing and shortcut catalog.
 - `src/airpilot/safety.py`: safe/armed output gate.
 - `src/airpilot/app.py`: runtime loop and OpenCV preview/status UI.
 
@@ -83,8 +129,9 @@ Last local automated validation:
 - `uv run --extra dev ruff format --check .`
 - `uv run --extra dev ruff check .`
 - `uv run --extra dev mypy src`
-- `uv run --extra dev python -m pytest`: 56 passed after two-hand tracking,
-  activation hardening, cursor feedback, and config migration fixes.
+- `uv run --extra dev python -m pytest`: 125 passed after exit-reason
+  instrumentation, Esc hardening, tracker-failure recovery tests, and long-run
+  synthetic coverage.
 - `uv run python -c "... MediaPipeHandTracker().draw(...)"` completed with
   `draw-ok` against the installed MediaPipe package.
 - `uv run --extra dev airpilot --camera 0` started without the prior preview
@@ -96,7 +143,8 @@ Last local automated validation:
   `0: Camera 0 (DirectShow)`.
 - `dist\AirPilot\AirPilot.exe --config %TEMP%\airpilot-packaged-validation-config.json
   --camera 0 --diagnose-seconds 5` opened Camera 0 through DirectShow and
-  processed 42 frames at 640x480 with `camera_reconnects: 0`.
+  processed 98 frames at 640x480, observed a hand in 11 frames, and reported
+  `camera_reconnects: 0`.
 - `dist\AirPilot\AirPilot.exe --camera 0` stayed running during a brief packaged
   live-startup smoke test and was then stopped.
 - Secret scan found only documentation/policy references to secrets/passwords,
@@ -105,11 +153,13 @@ Last local automated validation:
   `0: Camera 0 (DirectShow)`.
 - `uv run --extra dev airpilot --config %TEMP%\airpilot-validation-config.json
   --camera 0 --diagnose-seconds 5` opened Camera 0 through DirectShow and
-  processed 42 frames at 640x480, about 8.4 fps, with no hand observed and
+  processed 126 frames at 640x480, about 25.1 fps, with no hand observed and
   `camera_reconnects: 0`.
 
 Manual live hand acquisition and real pointer gestures still must be run with a
-hand physically presented to the webcam.
+hand physically presented to the webcam for this follow-up. Required checks now
+focus on arm gesture, click accuracy, drag, Help glanceability, Task View,
+scroll up/down/control, Clipboard History, and overall feel.
 
 ## Known Issues
 
@@ -119,21 +169,24 @@ hand physically presented to the webcam.
 - Safe cursor feedback uses transient Windows cursor APIs rather than permanent
   system cursor replacement; behavior over other applications needs manual
   validation.
-- Two-hand tracking is implemented but not yet manually validated with two
-  physical hands.
+- Two-hand shortcut mode, two-hand help, two-hand arm, and Task View gesture
+  navigation are implemented but not yet manually validated with two physical
+  hands.
 - MediaPipe emits a `NORM_RECT without IMAGE_DIMENSIONS` warning during live
   hand tracking; it did not reproduce as a crash and is not yet proven to cause
   incorrect gesture behavior in this milestone.
-- Multi-monitor DPI and UAC/elevated-window behavior need manual validation.
-- Current emergency controls are preview-window `q`/`Esc`/`p` plus PyAutoGUI
-  corner failsafe; no global hotkey or tray app yet.
+- Multi-monitor crossing, DPI, and UAC/elevated-window behavior need manual
+  validation.
+- Current emergency controls are preview-window `Q`, pause key `P`, and
+  PyAutoGUI corner failsafe; no global hotkey or tray app yet.
 
 ## Next
 
-Run the compact live validation with a hand in front of the laptop webcam to
-confirm overlay readability, activation, movement, cursor feedback, one-hand and
-two-hand detection, and orientation; then tune gesture defaults from the
-resulting observations.
+Run source/package validation and CI after each focused branch, then request
+compact human validation with:
+`run_duration=<minutes before manual quit or unexpected close>
+exit=<manual_q|closed_itself> exit_reason=<exact printed reason>
+mouse=<ok|fail> click=<ok|fail> feel=<short note>`.
 
 ## Decisions Not To Reverse Silently
 

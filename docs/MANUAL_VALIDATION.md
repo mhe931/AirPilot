@@ -15,6 +15,7 @@ Pass:
 - Diagnostics prints JSON with `frames > 0`, `frame_width > 0`, and
   `frame_height > 0`.
 - Diagnostics includes `camera_reconnects`.
+- Diagnostics includes `tracking_error_events`.
 - If your hand is visible to the camera during the diagnostic, `hand_observed`
   should be `true`.
 
@@ -27,13 +28,16 @@ uv run --extra dev airpilot --camera 0 --no-mouse
 Pass:
 
 - Preview window opens.
-- Overlay shows a prominent preview-only/disarmed/active/paused state banner, tracking
-  details, controls, and the control region rectangle.
+- Overlay shows a compact preview-only/disarmed/active/paused state banner,
+  tracking details, controls, and the control region rectangle.
 - Hand landmarks draw over the hand within 3 seconds when a hand is presented.
 - If preview landmark rendering fails, the app should stay running and show
   `preview landmarks disabled` rather than crashing.
 - No frames are saved to the repo, config directory, or temp directory.
-- `q` and `Esc` stop the app.
+- `q` stops the app and the terminal prints `AirPilot exit reason:
+  user_quit_q`.
+- `Esc` does not stop AirPilot; the overlay reports that Esc is ignored and Q is
+  the quit key.
 - `p` toggles pause/resume.
 
 ## Real Mouse
@@ -47,19 +51,44 @@ Pass:
 - App starts with `AIRPILOT - DISARMED`; moving your hand does not move the
   pointer.
 - Preview orientation matches the actual camera view, not selfie mirroring.
-- Press `a`; overlay changes prominently to `AIRPILOT - ACTIVE`.
+- Hold thumb-middle on the second hand until the overlay reports arming; overlay
+  changes to `AIRPILOT - ACTIVE`. Restart and also verify pressing `a` still
+  arms/disarms.
+- Press `h`; a separate gesture/action help window opens or closes without
+  blocking camera processing or clipping text. It should read like a glanceable
+  dashboard with quick start, status cards, core mouse gestures, controls,
+  shortcut-mode mappings, available shortcut actions, Task View, Clipboard
+  History, and risky-action notes.
+- Hold thumb-index on the second hand; the same help window toggles only after a
+  deliberate hold.
+- Move your hand right; the Windows pointer moves right. Move left/up/down; the
+  pointer follows the same physical direction.
 - Cursor reaches all four quadrants without leaving the control region.
+- Pointer response feels usable with the faster defaults and is not obviously
+  slow or jumpy.
 - While active and tracking a usable hand, Windows cursor feedback changes to a
   hand/pointer-style cursor where supported; it restores on hand loss, disarm,
   pause, quit, or runtime failure.
-- With five thumb-index pinch/releases, exactly five left clicks occur.
-- Holding thumb-index starts drag; pressing `p` or removing the hand releases it.
+- With five thumb-index pinch/releases, exactly five left clicks occur at the
+  intended target; pinch jitter should not drag the pointer off target while the
+  click candidate is held.
+- Holding thumb-index without moving should not start drag. Holding thumb-index
+  and then moving deliberately starts drag; pressing `p` or removing the hand
+  releases it.
 - With five thumb-middle pinch/releases, exactly five right clicks occur.
-- Thumb-ring vertical movement scrolls only while the overlay says `scrolling`.
-- Thumb-pinky hold pauses and resumes without firing clicks.
+- With five deliberate thumb-middle hold/releases, exactly five middle clicks
+  occur.
+- Thumb-ring pinch plus vertical hand movement scrolls only while the overlay
+  says `scrolling`. Move the hand up and down while holding the pinch; small
+  movements should accumulate into smooth repeated wheel events, and releasing
+  the pinch should stop scrolling cleanly.
+- Thumb-pinky hold does not pause by default. Pressing `p` pauses/resumes without
+  firing clicks. If gesture pause is explicitly enabled in config, thumb-pinky
+  hold pauses and resumes without firing clicks.
 - Ambiguous multi-pinch shapes show conflict/cancel behavior, not combined
   clicks.
-- Moving the pointer to a screen corner stops through PyAutoGUI failsafe.
+- Moving the pointer to a screen corner triggers PyAutoGUI failsafe, disarms
+  mouse output, and prints a warning instead of closing without context.
 - Press `a` again; overlay returns prominently to `AIRPILOT - DISARMED`.
 
 ## Two-Hand Tracking
@@ -74,6 +103,33 @@ Pass:
 - Two visible hands show `hands 2`.
 - The control hand remains stable when hand ordering changes; current policy
   prefers a reliably classified right hand.
+- Holding thumb-pinky on the second hand enters shortcut mode and suppresses
+  normal mouse click/scroll output.
+
+## Shortcut Actions
+
+Do not start with risky shortcuts such as lock workstation or close window.
+First validate safe actions:
+
+- In a text field, select text manually, enter shortcut mode, perform the default
+  copy gesture, and verify copy works.
+- Enter shortcut mode and perform the default paste gesture; verify paste works.
+- Enter shortcut mode and hold the thumb-middle gesture; verify Windows
+  Clipboard History opens. Close it manually after validation.
+- Enter shortcut mode, hold thumb-index until Windows Task View opens, move the
+  held hand left/right to select adjacent windows, then release to open the
+  selected window. Close Task View with Esc if needed.
+- In a presentation or compatible viewer, enter shortcut mode and verify next
+  slide and previous slide.
+- Verify the overlay briefly shows `ACTION: ...` when an action fires.
+
+## Compact Feedback
+
+After the live pass, report:
+
+```text
+run_duration=<minutes before manual quit or unexpected close> exit=<manual_q|closed_itself> exit_reason=<exact printed reason> mouse=<ok|fail> click=<ok|fail> feel=<short note>
+```
 
 ## Edge Cases
 
@@ -83,10 +139,13 @@ Verify and record:
 - Occlusion.
 - Camera unplug/replug. If Windows restores the device on the same index within
   the retry window, AirPilot should recover without a manual restart; otherwise
-  it should exit with a clear runtime error instead of hanging.
+  it should exit with `AirPilot exit reason: camera_unrecoverable` instead of
+  hanging.
 - Camera already in use by another app.
 - Sleep/wake.
 - Multi-monitor layout.
+- Pointer can cross monitor boundaries. If a monitor is left or above the primary
+  monitor, validate that movement reaches that negative-coordinate display.
 - Display scaling above 100%.
 - Elevated/UAC windows.
 

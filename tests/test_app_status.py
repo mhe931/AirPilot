@@ -1,6 +1,22 @@
-from airpilot.app import TrackingStats, status_lines
+import numpy as np
+
+from airpilot.app import (
+    ExitReason,
+    HelpWindow,
+    TrackingStats,
+    _dispatch_ui_action,
+    _handle_keypress,
+    _help_image,
+    _help_lines,
+    _preview_window_closed,
+    _text_width,
+    _wrap_help_lines,
+    status_lines,
+)
 from airpilot.config import AppConfig
 from airpilot.domain.types import GestureEvents, HandLandmarks, Landmark, TrackingFrame
+from airpilot.input import RecordingMouseController
+from airpilot.safety import MouseSafetyGate
 
 
 def test_status_lines_show_tracking_gesture_and_safe_mouse() -> None:
@@ -12,17 +28,49 @@ def test_status_lines_show_tracking_gesture_and_safe_mouse() -> None:
     )
     lines = status_lines(
         frame,
-        GestureEvents(active_gesture="left_pinch", status="tracking"),
+        GestureEvents(active_gesture="click_candidate", status="tracking"),
         AppConfig(),
         armed=False,
         fps=29.6,
     )
 
     assert lines[0] == "AIRPILOT - DISARMED"
-    assert "A = Enable Mouse" in lines[1]
+    assert "thumb+middle to arm" in lines[1]
     assert "tracking hand" in lines[2]
-    assert "left_pinch" in lines[2]
-    assert "A = Arm/Disarm" in lines[3]
+    assert "click_candidate" in lines[2]
+    assert "control" in lines[2]
+    assert "A arm" in lines[3]
+    assert not any("Thumb + index" in line for line in lines)
+
+
+def test_status_lines_show_task_view_guidance() -> None:
+    frame = TrackingFrame(timestamp_ms=0, width=640, height=480, hand=None)
+
+    lines = status_lines(
+        frame,
+        GestureEvents(active_gesture="task_view", status="task_view"),
+        AppConfig(),
+        armed=True,
+        fps=24.0,
+    )
+
+    assert lines[0] == "AIRPILOT - ACTIVE"
+    assert "move left/right" in lines[1]
+
+
+def test_status_lines_show_arm_gesture_progress() -> None:
+    frame = TrackingFrame(timestamp_ms=0, width=640, height=480, hand=None)
+
+    lines = status_lines(
+        frame,
+        GestureEvents(active_gesture="arm_pending", status="arm_pending"),
+        AppConfig(),
+        armed=False,
+        fps=24.0,
+    )
+
+    assert lines[0] == "AIRPILOT - DISARMED"
+    assert "ARMING" in lines[1]
 
 
 def test_status_lines_show_mouse_off_for_no_mouse_mode() -> None:
@@ -42,7 +90,7 @@ def test_status_lines_show_mouse_off_for_no_mouse_mode() -> None:
     assert lines[0] == "AIRPILOT - PREVIEW ONLY"
     assert "Mouse output disabled" in lines[1]
     assert "searching" in lines[2]
-    assert "Q = Quit" in lines[3]
+    assert "Q quit" in lines[3]
 
 
 def test_status_lines_show_paused_armed_and_active_gestures() -> None:
@@ -74,7 +122,7 @@ def test_status_lines_surface_preview_drawing_warning() -> None:
         drawing_error="landmarks disabled",
     )
 
-    assert lines[4] == "preview landmarks disabled"
+    assert lines[-1] == "preview landmarks disabled"
 
 
 def test_status_lines_show_armed_notice() -> None:
@@ -103,6 +151,185 @@ def test_overlay_layout_truncates_to_frame_width() -> None:
     assert all(line.x >= 0 for line in layout)
     assert all(len(line.text) <= len(longest) for line in layout)
     assert layout[1].text.endswith("...")
+
+
+def test_h_key_toggles_help_window() -> None:
+    help_window = HelpWindow()
+
+    should_exit, notice = _handle_keypress(
+        ord("h"),
+        config=AppConfig(),
+        engine=_StubEngine(),
+        safety=MouseSafetyGate(),
+        mouse=RecordingMouseController(),
+        help_window=help_window,
+    )
+
+    assert not should_exit
+    assert notice == "Help opened"
+    assert help_window.visible is True
+
+    should_exit, notice = _handle_keypress(
+        ord("H"),
+        config=AppConfig(),
+        engine=_StubEngine(),
+        safety=MouseSafetyGate(),
+        mouse=RecordingMouseController(),
+        help_window=help_window,
+    )
+
+    assert not should_exit
+    assert notice == "Help closed"
+    assert help_window.visible is False
+
+
+def test_q_key_reports_explicit_quit_reason() -> None:
+    exit_reason, notice = _handle_keypress(
+        ord("q"),
+        config=AppConfig(),
+        engine=_StubEngine(),
+        safety=MouseSafetyGate(),
+        mouse=RecordingMouseController(),
+    )
+
+    assert exit_reason is ExitReason.USER_QUIT_Q
+    assert notice == "Quit requested"
+
+
+def test_escape_key_does_not_quit() -> None:
+    exit_reason, notice = _handle_keypress(
+        27,
+        config=AppConfig(),
+        engine=_StubEngine(),
+        safety=MouseSafetyGate(),
+        mouse=RecordingMouseController(),
+    )
+
+    assert exit_reason is None
+    assert notice == "Esc ignored; press Q to quit"
+
+
+def test_preview_close_detection_only_reports_actual_hidden_window(monkeypatch: object) -> None:
+    monkeypatch.setattr("airpilot.app.cv2.getWindowProperty", lambda *_args: 1.0)
+    assert not _preview_window_closed("AirPilot", preview_created=True)
+
+    monkeypatch.setattr("airpilot.app.cv2.getWindowProperty", lambda *_args: -1.0)
+    assert not _preview_window_closed("AirPilot", preview_created=True)
+
+    monkeypatch.setattr("airpilot.app.cv2.getWindowProperty", lambda *_args: 0.0)
+    assert _preview_window_closed("AirPilot", preview_created=True)
+
+
+def test_preview_close_detection_ignores_transient_opencv_errors(monkeypatch: object) -> None:
+    import cv2
+
+    def raise_cv2_error(*_args: object) -> float:
+        raise cv2.error("transient")
+
+    monkeypatch.setattr("airpilot.app.cv2.getWindowProperty", raise_cv2_error)
+
+    assert not _preview_window_closed("AirPilot", preview_created=True)
+
+
+def test_gesture_arm_enables_mouse_output_when_config_was_disabled() -> None:
+    config = AppConfig()
+    config.runtime.enable_real_mouse = False
+    safety = MouseSafetyGate()
+
+    notice = _dispatch_ui_action("ui.arm", None, config=config, safety=safety)
+
+    assert notice == "ARMED by gesture"
+    assert config.runtime.enable_real_mouse is True
+    assert safety.armed is True
+
+
+def test_gesture_arm_respects_mouse_output_lock() -> None:
+    config = AppConfig()
+    config.runtime.enable_real_mouse = False
+    safety = MouseSafetyGate()
+
+    notice = _dispatch_ui_action(
+        "ui.arm",
+        None,
+        config=config,
+        safety=safety,
+        mouse_output_locked=True,
+    )
+
+    assert notice == "Mouse output disabled for diagnostics/--no-mouse"
+    assert config.runtime.enable_real_mouse is False
+    assert safety.armed is False
+
+
+def test_help_window_update_reuses_single_window(monkeypatch: object) -> None:
+    calls: list[str] = []
+    help_window = HelpWindow(visible=True)
+
+    monkeypatch.setattr("airpilot.app.cv2.getWindowProperty", lambda *_args: 1.0)
+    monkeypatch.setattr("airpilot.app.cv2.imshow", lambda title, _image: calls.append(title))
+
+    help_window.update(AppConfig())
+    help_window.update(AppConfig())
+
+    assert calls == ["AirPilot Help", "AirPilot Help"]
+    assert help_window.visible is True
+
+
+def test_help_window_stays_closed_after_manual_close(monkeypatch: object) -> None:
+    calls: list[str] = []
+    visible_values = iter([0.0])
+    help_window = HelpWindow(visible=True)
+
+    monkeypatch.setattr(
+        "airpilot.app.cv2.getWindowProperty",
+        lambda *_args: next(visible_values),
+    )
+    monkeypatch.setattr("airpilot.app.cv2.imshow", lambda title, _image: calls.append(title))
+
+    help_window.update(AppConfig())
+    help_window.update(AppConfig())
+
+    assert calls == ["AirPilot Help"]
+    assert help_window.visible is False
+
+
+def test_help_content_is_readable_and_renderable() -> None:
+    lines = _help_lines(AppConfig())
+    image = _help_image(lines)
+
+    assert "AirPilot Help" in lines
+    assert "QUICK START" in lines
+    assert "PHILOSOPHY" in lines
+    assert "CORE MOUSE GESTURES" in lines
+    assert "SHORTCUT MODE" in lines
+    assert "AVAILABLE SHORTCUT ACTIONS" in lines
+    assert any("Task View" in line for line in lines)
+    assert any("Thumb + index pinch/release | Left click" in line for line in lines)
+    assert any("Clipboard history `Win+V`" in line for line in lines)
+    assert "Q | Quit" in lines
+    assert isinstance(image, np.ndarray)
+    assert image.shape[0] > 0
+    assert image.shape[0] <= 760
+    wrapped = _wrap_help_lines(lines, 460)
+    assert not any(line.endswith("...") for line in wrapped)
+    assert any("Win+V" in line for line in wrapped)
+    assert all(_text_width(line, 0.55) <= 460 for line in wrapped[2:])
+
+
+def test_help_wrapping_does_not_truncate_long_pipe_fields() -> None:
+    lines = [
+        "Shortcut mode + hold thumb/middle | "
+        "Extremely long custom clipboard history action label | Win+V | enabled",
+        "A | WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW | Z",
+    ]
+
+    wrapped = _wrap_help_lines(lines, 260)
+
+    assert not any(line.endswith("...") for line in wrapped)
+    assert any("Win+V" in line for line in wrapped)
+    assert any("Z" in line for line in wrapped)
+    assert _text_width(wrapped[0], 0.75) <= 260
+    assert all(_text_width(line, 0.55) <= 260 for line in wrapped[1:])
 
 
 def test_tracking_stats_summary_is_aggregate_only() -> None:
@@ -144,3 +371,8 @@ def test_tracking_stats_handles_zero_and_out_of_order_timestamps() -> None:
     )
 
     assert stats.summary()["max_frame_gap_ms"] == 0
+
+
+class _StubEngine:
+    def toggle_pause(self) -> GestureEvents:
+        return GestureEvents(paused_changed=True, paused=True)
