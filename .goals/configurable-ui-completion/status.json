@@ -1,6 +1,6 @@
 {
   "goal_id": "configurable-ui-completion",
-  "status": "done",
+  "status": "completed",
   "iteration": 1,
   "builder_model": "Claude:Sonnet-4.6",
   "inspector_model": "Claude:Haiku-4.5",
@@ -12,7 +12,7 @@
       "verdict": "PASS",
       "builder_sha": "ffb8084",
       "inspector_feedback": ".goals/configurable-ui-completion/inspector-feedback-1.md",
-      "tests": "251 passed, 1 skipped",
+      "tests": "251 passed, 1 skipped; local source/package diagnostics passed after warmup reruns",
       "ci": "SUCCESS"
     }
   ]
