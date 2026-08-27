@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-CURRENT_SCHEMA_VERSION = 5
+CURRENT_SCHEMA_VERSION = 6
 
 _V4_CURSOR_DEFAULTS = {
     "camera_min_x": 0.08,
@@ -18,6 +18,13 @@ _V4_CURSOR_DEFAULTS = {
     "dead_zone_px": 5,
 }
 
+_V5_SCROLL_DEFAULTS = {
+    "scroll_pinch_threshold": 0.065,
+    "scroll_pinch_release_threshold": 0.085,
+    "scroll_activation_y_delta": 0.018,
+    "scroll_units_per_step": 3,
+}
+
 
 @dataclass(slots=True)
 class GestureConfig:
@@ -26,12 +33,14 @@ class GestureConfig:
     pinch_release_threshold: float = 0.075
     right_pinch_threshold: float = 0.065
     right_pinch_release_threshold: float = 0.085
-    scroll_pinch_threshold: float = 0.065
-    scroll_pinch_release_threshold: float = 0.085
+    scroll_pinch_threshold: float = 0.085
+    scroll_pinch_release_threshold: float = 0.130
     pause_pinch_threshold: float = 0.070
     pause_pinch_release_threshold: float = 0.095
-    scroll_activation_y_delta: float = 0.018
-    scroll_units_per_step: int = 3
+    scroll_activation_y_delta: float = 0.012
+    scroll_sensitivity: float = 1.4
+    scroll_cooldown_ms: int = 35
+    scroll_units_per_step: int = 2
     shortcut_mode_hold_ms: int = 650
     shortcut_action_hold_ms: int = 650
     help_gesture_hold_ms: int = 900
@@ -75,6 +84,7 @@ def _default_shortcut_catalog() -> dict[str, ShortcutConfig]:
         "clipboard.copy": ShortcutConfig("Copy", ("ctrl", "c"), "editing"),
         "clipboard.paste": ShortcutConfig("Paste", ("ctrl", "v"), "editing"),
         "clipboard.cut": ShortcutConfig("Cut", ("ctrl", "x"), "editing", enabled=False),
+        "clipboard.history": ShortcutConfig("Clipboard history", ("win", "v"), "editing"),
         "editing.undo": ShortcutConfig("Undo", ("ctrl", "z"), "editing", enabled=False),
         "editing.redo": ShortcutConfig("Redo", ("ctrl", "y"), "editing", enabled=False),
         "editing.select_all": ShortcutConfig("Select all", ("ctrl", "a"), "editing", enabled=False),
@@ -170,6 +180,7 @@ def _default_gesture_actions() -> dict[str, str]:
         "shortcut_index_release": "clipboard.copy",
         "shortcut_index_hold": "window.switch",
         "shortcut_middle_release": "clipboard.paste",
+        "shortcut_middle_hold": "clipboard.history",
         "shortcut_ring_release": "presentation.next_slide",
         "shortcut_pinky_release": "presentation.previous_slide",
     }
@@ -257,6 +268,8 @@ def _config_from_dict(raw: dict[str, Any]) -> AppConfig:
         return _migrate_v3_config(raw)
     if version == 4:
         return _migrate_v4_config(raw)
+    if version == 5:
+        return _migrate_v5_config(raw)
     if version != CURRENT_SCHEMA_VERSION:
         raise ValueError(f"Unsupported AirPilot config schema_version {version!r}")
     return AppConfig(
@@ -280,7 +293,7 @@ def _migrate_v1_config(raw: dict[str, Any]) -> AppConfig:
     cursor_section["mirror_x"] = True
     return AppConfig(
         schema_version=CURRENT_SCHEMA_VERSION,
-        gestures=_gestures_from_section(_section(raw, "gestures")),
+        gestures=_gestures_from_section(_migrated_v6_gestures(_section(raw, "gestures"))),
         cursor=CursorConfig(**cursor_section),
         runtime=RuntimeConfig(**_section(raw, "runtime")),
     )
@@ -291,7 +304,7 @@ def _migrate_v2_config(raw: dict[str, Any]) -> AppConfig:
     runtime_section["flip_camera_x"] = False
     return AppConfig(
         schema_version=CURRENT_SCHEMA_VERSION,
-        gestures=_gestures_from_section(_section(raw, "gestures")),
+        gestures=_gestures_from_section(_migrated_v6_gestures(_section(raw, "gestures"))),
         cursor=_migrated_cursor(_section(raw, "cursor")),
         runtime=RuntimeConfig(**runtime_section),
     )
@@ -302,7 +315,7 @@ def _migrate_v3_config(raw: dict[str, Any]) -> AppConfig:
     runtime_section["flip_camera_x"] = False
     return AppConfig(
         schema_version=CURRENT_SCHEMA_VERSION,
-        gestures=_gestures_from_section(_section(raw, "gestures")),
+        gestures=_gestures_from_section(_migrated_v6_gestures(_section(raw, "gestures"))),
         cursor=_migrated_cursor(_section(raw, "cursor")),
         runtime=RuntimeConfig(**runtime_section),
     )
@@ -328,6 +341,8 @@ def _gestures_from_section(raw: dict[str, Any]) -> GestureConfig:
         "pause_pinch_threshold": defaults.pause_pinch_threshold,
         "pause_pinch_release_threshold": defaults.pause_pinch_release_threshold,
         "scroll_activation_y_delta": defaults.scroll_activation_y_delta,
+        "scroll_sensitivity": defaults.scroll_sensitivity,
+        "scroll_cooldown_ms": defaults.scroll_cooldown_ms,
         "scroll_units_per_step": defaults.scroll_units_per_step,
         "shortcut_mode_hold_ms": defaults.shortcut_mode_hold_ms,
         "shortcut_action_hold_ms": defaults.shortcut_action_hold_ms,
@@ -349,11 +364,30 @@ def _migrate_v4_config(raw: dict[str, Any]) -> AppConfig:
     runtime_section["show_gesture_help"] = False
     return AppConfig(
         schema_version=CURRENT_SCHEMA_VERSION,
-        gestures=_gestures_from_section(_section(raw, "gestures")),
+        gestures=_gestures_from_section(_migrated_v6_gestures(_section(raw, "gestures"))),
         cursor=CursorConfig(**_migrated_v5_cursor(_section(raw, "cursor"))),
         actions=_actions_from_section(_section(raw, "actions")),
         runtime=RuntimeConfig(**runtime_section),
     )
+
+
+def _migrate_v5_config(raw: dict[str, Any]) -> AppConfig:
+    return AppConfig(
+        schema_version=CURRENT_SCHEMA_VERSION,
+        gestures=_gestures_from_section(_migrated_v6_gestures(_section(raw, "gestures"))),
+        cursor=CursorConfig(**_section(raw, "cursor")),
+        actions=_actions_from_section(_section(raw, "actions")),
+        runtime=RuntimeConfig(**_section(raw, "runtime")),
+    )
+
+
+def _migrated_v6_gestures(raw: dict[str, Any]) -> dict[str, Any]:
+    gesture_section = dict(raw)
+    defaults = GestureConfig()
+    for field_name, old_value in _V5_SCROLL_DEFAULTS.items():
+        if gesture_section.get(field_name) == old_value:
+            gesture_section[field_name] = getattr(defaults, field_name)
+    return gesture_section
 
 
 def _migrated_v5_cursor(raw: dict[str, Any]) -> dict[str, Any]:

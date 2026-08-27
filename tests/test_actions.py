@@ -15,9 +15,29 @@ from airpilot.input import RecordingMouseController
 def test_action_help_lines_are_generated_from_config() -> None:
     lines = action_help_lines(ActionConfig())
 
-    assert "Thumb + index pinch/release - Left click" in lines
+    assert "PHILOSOPHY" in lines
+    assert "CORE MOUSE GESTURES" in lines
+    assert "SHORTCUT MODE" in lines
+    assert "AVAILABLE SHORTCUT ACTIONS" in lines
+    assert any("Thumb + index pinch/release | Left click" in line for line in lines)
     assert any("Copy" in line for line in lines)
-    assert any("Risky actions disabled" in line for line in lines)
+    assert any("Clipboard history `Win+V`" in line for line in lines)
+    assert any("RISKY ACTIONS" in line for line in lines)
+
+
+def test_action_help_lines_include_custom_profiles() -> None:
+    actions = ActionConfig()
+    actions.catalog["custom.action"] = ShortcutConfig(
+        label="Custom action",
+        keys=("ctrl", "alt", "p"),
+        profile="custom",
+        enabled=True,
+    )
+
+    lines = action_help_lines(actions)
+
+    assert "Custom" in lines
+    assert any("Custom action" in line for line in lines)
 
 
 def test_validate_action_config_rejects_unknown_binding() -> None:
@@ -54,6 +74,10 @@ def test_validate_action_config_rejects_unflagged_risky_shortcut_alias() -> None
         validate_action_config(actions)
 
 
+def test_validate_action_config_allows_empty_gesture_mappings() -> None:
+    validate_action_config(ActionConfig(gesture_actions={}))
+
+
 def test_dispatch_action_uses_fake_mouse_and_skips_risky_disabled_actions() -> None:
     actions = ActionConfig()
     mouse = RecordingMouseController()
@@ -62,6 +86,16 @@ def test_dispatch_action_uses_fake_mouse_and_skips_risky_disabled_actions() -> N
     assert dispatch_action(actions, mouse, "system.lock") is None
 
     assert mouse.actions == ["hotkey:ctrl+c"]
+
+
+def test_clipboard_history_uses_fake_win_v_shortcut() -> None:
+    actions = ActionConfig()
+    mouse = RecordingMouseController()
+
+    assert actions.catalog["clipboard.history"].keys == ("win", "v")
+    assert dispatch_action(actions, mouse, "clipboard.history") == "Clipboard history"
+
+    assert mouse.actions == ["hotkey:win+v"]
 
 
 def test_action_router_requires_two_hand_shortcut_mode_before_shortcut() -> None:
@@ -108,6 +142,48 @@ def test_action_router_requires_two_hand_shortcut_mode_before_shortcut() -> None
     )
     assert released.action_id == "clipboard.copy"
     assert released.action_label == "Copy"
+
+
+def test_action_router_middle_hold_triggers_clipboard_history() -> None:
+    router = ActionRouter(ActionConfig(), GestureConfig(shortcut_mode_hold_ms=0))
+    control = _hand(middle=(0.51, 0.50))
+    secondary = _hand(pinky=(0.51, 0.50))
+
+    started = router.process(
+        TrackingFrame(
+            timestamp_ms=0,
+            width=640,
+            height=480,
+            hand=control,
+            hands=(control, secondary),
+        ),
+        GestureEvents(),
+    )
+    held = router.process(
+        TrackingFrame(
+            timestamp_ms=700,
+            width=640,
+            height=480,
+            hand=control,
+            hands=(control, secondary),
+        ),
+        GestureEvents(),
+    )
+    released = router.process(
+        TrackingFrame(
+            timestamp_ms=800,
+            width=640,
+            height=480,
+            hand=_hand(),
+            hands=(_hand(), secondary),
+        ),
+        GestureEvents(),
+    )
+
+    assert started.action_id is None
+    assert held.action_id == "clipboard.history"
+    assert held.action_label == "Clipboard history"
+    assert released.action_id is None
 
 
 def test_action_router_toggles_help_with_secondary_index_hold() -> None:

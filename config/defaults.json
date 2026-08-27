@@ -102,6 +102,16 @@
         "profile": "editing",
         "risky": false
       },
+      "clipboard.history": {
+        "enabled": true,
+        "keys": [
+          "win",
+          "v"
+        ],
+        "label": "Clipboard history",
+        "profile": "editing",
+        "risky": false
+      },
       "clipboard.paste": {
         "enabled": true,
         "keys": [
@@ -418,6 +428,7 @@
       "help_secondary_index_hold": "ui.toggle_help",
       "shortcut_index_hold": "window.switch",
       "shortcut_index_release": "clipboard.copy",
+      "shortcut_middle_hold": "clipboard.history",
       "shortcut_middle_release": "clipboard.paste",
       "shortcut_pinky_release": "presentation.previous_slide",
       "shortcut_ring_release": "presentation.next_slide"
@@ -454,10 +465,12 @@
     "pinch_threshold": 0.055,
     "right_pinch_release_threshold": 0.085,
     "right_pinch_threshold": 0.065,
-    "scroll_activation_y_delta": 0.018,
-    "scroll_pinch_release_threshold": 0.085,
-    "scroll_pinch_threshold": 0.065,
-    "scroll_units_per_step": 3,
+    "scroll_activation_y_delta": 0.012,
+    "scroll_cooldown_ms": 35,
+    "scroll_pinch_release_threshold": 0.13,
+    "scroll_pinch_threshold": 0.085,
+    "scroll_sensitivity": 1.4,
+    "scroll_units_per_step": 2,
     "shortcut_action_hold_ms": 650,
     "shortcut_mode_hold_ms": 650,
     "tracking_loss_grace_ms": 250
@@ -477,5 +490,5 @@
     "tracker_detection_confidence": 0.55,
     "tracker_tracking_confidence": 0.55
   },
-  "schema_version": 5
+  "schema_version": 6
 }

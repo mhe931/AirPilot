@@ -32,7 +32,7 @@ Implemented:
   including monitors left or above the primary display, can be addressed.
 - Configurable shortcut action catalog with safe default two-hand shortcut mode.
 - Separate gesture/action help window, opened by `h` or a deliberate two-hand
-  help gesture.
+  help gesture, with complete gesture, shortcut, and safety reference content.
 - Config persistence under `%APPDATA%\AirPilot\config.json`.
 - Synthetic landmark tests that do not require a webcam or desktop automation.
 - Preview landmark drawing is compatible with the pinned MediaPipe package and
@@ -106,21 +106,27 @@ Default gestures:
 - Thumb + index pinch and hold: drag; release to drop.
 - Thumb + middle pinch, then release: right click.
 - Thumb + middle pinch and hold, then release: middle click.
-- Thumb + ring pinch while moving vertically: scroll.
+- Thumb + ring pinch while moving the hand vertically: scroll wheel. AirPilot
+  uses accumulated wrist movement while the pinch is held, so small movement can
+  build into smooth repeated scrolling without moving the pointer.
 - Pause gesture is disabled by default to prevent accidental `PAUSED` state;
   keyboard `p` remains available. If enabled in config, thumb + pinky hold
   pauses/resumes.
 - Help window: hold thumb + index on the second hand.
 - Shortcut mode: hold thumb + pinky on the second hand, then use configured
-  control-hand shortcut gestures. Defaults include copy, paste, switch app, next
-  slide, and previous slide. Risky actions such as lock workstation and close
-  window are disabled by default.
+  control-hand shortcut gestures. Defaults include copy, paste, clipboard
+  history (`Win+V` via thumb-middle hold), switch app, next slide, and previous
+  slide. Risky actions such as lock workstation and close window are disabled by
+  default.
 
 Pointer defaults intentionally favor responsiveness: a smaller active camera
 region, higher sensitivity, lighter smoothing, and a small dead zone. Tune
 `cursor.camera_min_*`, `cursor.camera_max_*`, `cursor.sensitivity`,
 `cursor.smoothing_alpha`, and `cursor.dead_zone_px` in
 `%APPDATA%\AirPilot\config.json` if your setup feels too slow or too fast.
+For scroll feel, tune `gestures.scroll_sensitivity`,
+`gestures.scroll_activation_y_delta`, `gestures.scroll_cooldown_ms`, and
+`gestures.scroll_units_per_step`.
 
 ## Validate
 

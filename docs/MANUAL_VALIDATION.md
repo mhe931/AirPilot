@@ -49,7 +49,9 @@ Pass:
 - Preview orientation matches the actual camera view, not selfie mirroring.
 - Press `a`; overlay changes to `AIRPILOT - ACTIVE`.
 - Press `h`; a separate gesture/action help window opens or closes without
-  blocking camera processing or clipping text.
+  blocking camera processing or clipping text. It should include philosophy,
+  core mouse gestures, controls, shortcut-mode mappings, available shortcut
+  actions, Clipboard History, and risky-action notes.
 - Hold thumb-index on the second hand; the same help window toggles only after a
   deliberate hold.
 - Move your hand right; the Windows pointer moves right. Move left/up/down; the
@@ -65,7 +67,10 @@ Pass:
 - With five thumb-middle pinch/releases, exactly five right clicks occur.
 - With five deliberate thumb-middle hold/releases, exactly five middle clicks
   occur.
-- Thumb-ring vertical movement scrolls only while the overlay says `scrolling`.
+- Thumb-ring pinch plus vertical hand movement scrolls only while the overlay
+  says `scrolling`. Move the hand up and down while holding the pinch; small
+  movements should accumulate into smooth repeated wheel events, and releasing
+  the pinch should stop scrolling cleanly.
 - Thumb-pinky hold does not pause by default. Pressing `p` pauses/resumes without
   firing clicks. If gesture pause is explicitly enabled in config, thumb-pinky
   hold pauses and resumes without firing clicks.
@@ -97,6 +102,8 @@ First validate safe actions:
 - In a text field, select text manually, enter shortcut mode, perform the default
   copy gesture, and verify copy works.
 - Enter shortcut mode and perform the default paste gesture; verify paste works.
+- Enter shortcut mode and hold the thumb-middle gesture; verify Windows
+  Clipboard History opens. Close it manually after validation.
 - Enter shortcut mode and perform switch-app only when changing windows is safe.
 - In a presentation or compatible viewer, enter shortcut mode and verify next
   slide and previous slide.
@@ -104,10 +111,10 @@ First validate safe actions:
 
 ## Compact Feedback
 
-After the real-mouse and help-window pass, report:
+After the scroll/help/Clipboard History pass, report:
 
 ```text
-pause_accidental=<yes|no> pause_intentional=<ok|fail> speed=<slow|good|too_fast> help_key=<ok|fail> help_gesture=<ok|fail> help_window=<ok|fail> preview=<ok|fail> feel=<short note>
+scroll_up=<ok|fail> scroll_down=<ok|fail> scroll_control=<bad|good|too_fast|too_slow> clipboard_history=<ok|fail> help_content=<ok|fail> help_readable=<ok|fail> feel=<short note>
 ```
 
 ## Edge Cases

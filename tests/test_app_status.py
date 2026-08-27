@@ -6,6 +6,8 @@ from airpilot.app import (
     _handle_keypress,
     _help_image,
     _help_lines,
+    _text_width,
+    _wrap_help_lines,
     status_lines,
 )
 from airpilot.config import AppConfig
@@ -185,9 +187,35 @@ def test_help_content_is_readable_and_renderable() -> None:
     image = _help_image(lines)
 
     assert "AirPilot Help" in lines
-    assert any("Thumb + index pinch/release" in line for line in lines)
+    assert "PHILOSOPHY" in lines
+    assert "CORE MOUSE GESTURES" in lines
+    assert "SHORTCUT MODE" in lines
+    assert "AVAILABLE SHORTCUT ACTIONS" in lines
+    assert any("Thumb + index pinch/release | Left click" in line for line in lines)
+    assert any("Clipboard history `Win+V`" in line for line in lines)
     assert isinstance(image, np.ndarray)
     assert image.shape[0] > 0
+    assert image.shape[0] <= 760
+    wrapped = _wrap_help_lines(lines, 460)
+    assert not any(line.endswith("...") for line in wrapped)
+    assert any("Win+V" in line for line in wrapped)
+    assert all(_text_width(line, 0.55) <= 460 for line in wrapped[2:])
+
+
+def test_help_wrapping_does_not_truncate_long_pipe_fields() -> None:
+    lines = [
+        "Shortcut mode + hold thumb/middle | "
+        "Extremely long custom clipboard history action label | Win+V | enabled",
+        "A | WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW | Z",
+    ]
+
+    wrapped = _wrap_help_lines(lines, 260)
+
+    assert not any(line.endswith("...") for line in wrapped)
+    assert any("Win+V" in line for line in wrapped)
+    assert any("Z" in line for line in wrapped)
+    assert _text_width(wrapped[0], 0.75) <= 260
+    assert all(_text_width(line, 0.55) <= 260 for line in wrapped[1:])
 
 
 def test_tracking_stats_summary_is_aggregate_only() -> None:

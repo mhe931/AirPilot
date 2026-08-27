@@ -51,9 +51,16 @@ hardware-tuning work should use short-lived focused feature branches off `main`.
   origins for monitors left or above the primary display.
 - Middle click is available through deliberate thumb-middle hold/release.
 - A separate gesture/action help window is available with `H` or a deliberate
-  second-hand thumb-index hold.
+  second-hand thumb-index hold. The Help window now includes the interaction
+  philosophy, core gestures, controls, shortcut-mode mappings, grouped action
+  catalog, and risky-action notes.
 - A configurable shortcut action catalog and two-hand shortcut mode are
-  implemented; risky actions are disabled by default.
+  implemented; risky actions are disabled by default. Clipboard History
+  (`clipboard.history` / `Win+V`) is enabled by default through shortcut-mode
+  thumb-middle hold.
+- Scroll uses a deliberate thumb-ring pinch plus accumulated vertical wrist
+  movement, configurable sensitivity, and a short cooldown for smoother repeated
+  wheel events while suppressing pointer movement.
 - Cursor defaults use a tighter active camera region, higher sensitivity, lighter
   smoothing, and a small dead zone for more responsive pointer movement.
 - Gesture pause is disabled by default to avoid accidental `PAUSED`; keyboard
@@ -100,9 +107,8 @@ Last local automated validation:
 - `uv run --extra dev ruff format --check .`
 - `uv run --extra dev ruff check .`
 - `uv run --extra dev mypy src`
-- `uv run --extra dev python -m pytest`: 84 passed after physical-direction,
-  virtual desktop, separate help window, accidental-pause prevention, faster
-  cursor defaults, middle-click, and action-router changes.
+- `uv run --extra dev python -m pytest`: 101 passed after detailed Help,
+  Clipboard History, and scroll-state changes.
 - `uv run python -c "... MediaPipeHandTracker().draw(...)"` completed with
   `draw-ok` against the installed MediaPipe package.
 - `uv run --extra dev airpilot --camera 0` started without the prior preview
@@ -128,10 +134,9 @@ Last local automated validation:
   `camera_reconnects: 0`.
 
 Manual live hand acquisition and real pointer gestures still must be run with a
-hand physically presented to the webcam for this follow-up. Required checks:
-accidental pause, keyboard pause, pointer speed/feel, help key, help gesture,
-help window lifecycle, compact preview, direction, monitor crossing, scroll,
-middle click, copy/paste, switch app, slide navigation, and shortcut safety.
+hand physically presented to the webcam for this follow-up. Required checks now
+focus on scroll up/down/control, Clipboard History, Help content/readability,
+and overall feel.
 
 ## Known Issues
 
@@ -155,9 +160,9 @@ middle click, copy/paste, switch app, slide navigation, and shortcut safety.
 
 Update PR #7 from `feature/windows-actions-monitors`, run source/package
 validation and CI, then request compact human validation with:
-`pause_accidental=<yes|no> pause_intentional=<ok|fail>
-speed=<slow|good|too_fast> help_key=<ok|fail> help_gesture=<ok|fail>
-help_window=<ok|fail> preview=<ok|fail> feel=<short note>`.
+`scroll_up=<ok|fail> scroll_down=<ok|fail>
+scroll_control=<bad|good|too_fast|too_slow> clipboard_history=<ok|fail>
+help_content=<ok|fail> help_readable=<ok|fail> feel=<short note>`.
 
 ## Decisions Not To Reverse Silently
 

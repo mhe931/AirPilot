@@ -100,9 +100,14 @@ powershell -ExecutionPolicy Bypass -File scripts/package_windows.ps1
   preview while mirroring normalized X for operator-facing pointer motion.
 - Initial shortcut/action catalog and two-hand shortcut mode are implemented with
   risky shortcuts disabled by default.
+- Clipboard History (`clipboard.history` / `Win+V`) is enabled by default through
+  shortcut-mode thumb-middle hold.
 - Middle click is available via a deliberate thumb-middle hold/release.
 - The preview stays compact; full gesture/action help opens in a separate window
-  with `H` or a deliberate second-hand thumb-index hold.
+  with `H` or a deliberate second-hand thumb-index hold, and contains generated
+  gesture philosophy, mappings, action catalog, and safety notes.
+- Scroll uses thumb-ring pinch plus accumulated vertical wrist movement with
+  configurable sensitivity/cooldown while suppressing pointer movement.
 - Gesture pause is disabled by default to prevent accidental `PAUSED`; keyboard
   `P` still pauses/resumes, and config can explicitly re-enable the gesture.
 - Pointer defaults now favor responsiveness with tighter camera bounds, higher
@@ -110,9 +115,8 @@ powershell -ExecutionPolicy Bypass -File scripts/package_windows.ps1
 
 ## Known Issues
 
-- Manual validation is still required for accidental pause prevention, keyboard
-  pause, pointer speed, the help window/key/gesture, compact preview, direction,
-  multi-monitor, middle-click, and shortcut action behavior.
+- Manual validation is still required for scroll up/down/control, Clipboard
+  History, Help content/readability, and feel before merging PR #7.
 - Packaged executable is unsigned.
 - Camera unplug/replug recovery now retries reopening the same camera index, but
   recovery still depends on Windows presenting the device again on that index.
@@ -136,9 +140,9 @@ powershell -ExecutionPolicy Bypass -File scripts/package_windows.ps1
 ## Next Task
 
 Run the compact live validation checklist and collect:
-`pause_accidental=<yes|no> pause_intentional=<ok|fail>
-speed=<slow|good|too_fast> help_key=<ok|fail> help_gesture=<ok|fail>
-help_window=<ok|fail> preview=<ok|fail> feel=<short note>`.
+`scroll_up=<ok|fail> scroll_down=<ok|fail>
+scroll_control=<bad|good|too_fast|too_slow> clipboard_history=<ok|fail>
+help_content=<ok|fail> help_readable=<ok|fail> feel=<short note>`.
 
 ## Decisions Not To Silently Reverse
 

@@ -46,6 +46,8 @@ Gestures are explicit states rather than one-frame classifications:
 - Dragging requires a longer hold and consumes the click.
 - Pinch thresholds use release hysteresis.
 - Clicks have cooldowns.
+- Scroll uses an explicit held state with pinch hysteresis, accumulated vertical
+  wrist movement, configurable sensitivity, and a short emit cooldown.
 - Tracking loss resets pending gestures and releases active drag.
 - Paused mode suppresses movement and actions; the keyboard pause control is
   always available, while gesture pause is opt-in to reduce accidental pauses.
@@ -63,11 +65,14 @@ Default gestures:
 - Thumb-index: left click on short release, drag on hold.
 - Thumb-middle: right click.
 - Thumb-middle hold: middle click.
-- Thumb-ring: scroll mode.
+- Thumb-ring: scroll mode; while held, accumulated vertical wrist movement emits
+  repeated wheel events and suppresses pointer movement.
 - Thumb-pinky: optional pause/resume hold when enabled in config.
 - Second-hand thumb-index hold: toggle the separate help window.
 - Second-hand thumb-pinky hold: shortcut mode; configured shortcut gestures emit
-  enabled catalog actions such as copy, paste, switch app, and slide navigation.
+  enabled catalog actions such as copy, paste, clipboard history, switch app, and
+  slide navigation. Default Clipboard History is `Win+V` through shortcut-mode
+  thumb-middle hold.
 
 Default cursor behavior:
 
@@ -87,9 +92,10 @@ Default cursor behavior:
 `ActionConfig.catalog` stores semantic IDs, labels, profiles, key chords,
 enabled state, and risky-action flags. The initial catalog covers high-value
 Windows, editing, browser, presentation, and media shortcuts. Safe actions such
-as copy, paste, switch app, and slide navigation are enabled by default; higher
-impact actions such as lock workstation, close window, desktop switching, and
-tab close are present but disabled and/or risky by default.
+as copy, paste, Clipboard History (`clipboard.history` / `Win+V`), switch app,
+and slide navigation are enabled by default; higher impact actions such as lock
+workstation, close window, desktop switching, and tab close are present but
+disabled and/or risky by default.
 
 ## Failure Handling
 

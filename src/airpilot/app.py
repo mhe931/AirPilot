@@ -540,34 +540,114 @@ def _help_lines(config: AppConfig) -> list[str]:
 
 
 def _help_image(lines: Sequence[str]) -> MatLike:
-    width = 760
-    line_height = 28
-    height = max(260, min(900, 36 + line_height * len(lines)))
+    width = 1480 if len(lines) > 48 else 860
+    line_height = 20
+    column_count = 3 if len(lines) > 72 else 2 if len(lines) > 48 else 1
+    column_width = width // column_count
+    render_lines = _wrap_help_lines(lines, column_width - 32)
+    rows = (len(render_lines) + column_count - 1) // column_count
+    height = max(320, 42 + line_height * rows)
     image = np.full((height, width, 3), 32, dtype=np.uint8)
-    y = 36
-    for index, line in enumerate(lines):
+    for index, line in enumerate(render_lines):
+        column = index // rows
+        row = index % rows
+        x = 16 + column * column_width
+        y = 36 + row * line_height
         scale = 0.75 if index == 0 else 0.55
         color = (255, 255, 255) if line else (180, 180, 180)
         if (
-            line in {"Mouse", "Control"}
+            line.isupper()
+            or line in {"Mouse", "Control"}
             or line.startswith("Shortcut mode")
             or line.startswith("Risky")
         ):
             color = (120, 220, 255)
         cv2.putText(
             image,
-            _fit_text(line, width - 32, scale=scale),
-            (16, y),
+            _fit_text(line, column_width - 32, scale=scale),
+            (x, y),
             cv2.FONT_HERSHEY_SIMPLEX,
             scale,
             color,
             2 if index == 0 else 1,
             cv2.LINE_AA,
         )
-        y += line_height
-        if y > height - 12:
-            break
     return image
+
+
+def _wrap_help_lines(lines: Sequence[str], max_width: int) -> list[str]:
+    wrapped: list[str] = []
+    for index, line in enumerate(lines):
+        scale = 0.75 if index == 0 else 0.55
+        wrapped.extend(_wrap_help_line(line, max_width, scale=scale))
+    return wrapped
+
+
+def _wrap_help_line(line: str, max_width: int, *, scale: float) -> list[str]:
+    if not line or _text_width(line, scale) <= max_width:
+        return [line]
+    if " | " not in line:
+        return _wrap_text_units(line, max_width, scale=scale)
+
+    parts = line.split(" | ")
+    current = ""
+    wrapped: list[str] = []
+    continuation_prefix = "  "
+    continuation_width = max_width - _text_width(continuation_prefix, scale)
+    for part in parts:
+        candidate = part if not current else f"{current} | {part}"
+        if _text_width(candidate, scale) <= max_width:
+            current = candidate
+            continue
+        if current:
+            wrapped.append(current)
+        part_lines = _wrap_text_units(part, continuation_width, scale=scale)
+        if len(part_lines) == 1:
+            current = f"{continuation_prefix}{part_lines[0]}"
+        else:
+            wrapped.extend(f"{continuation_prefix}{part_line}" for part_line in part_lines[:-1])
+            current = f"{continuation_prefix}{part_lines[-1]}"
+    if current:
+        wrapped.append(current)
+    return wrapped
+
+
+def _wrap_text_units(text: str, max_width: int, *, scale: float) -> list[str]:
+    words = text.split(" ")
+    wrapped: list[str] = []
+    current = ""
+    for word in words:
+        candidate = word if not current else f"{current} {word}"
+        if _text_width(candidate, scale) <= max_width:
+            current = candidate
+            continue
+        if current:
+            wrapped.append(current)
+            current = ""
+        if _text_width(word, scale) <= max_width:
+            current = word
+            continue
+        chunks = _wrap_long_token(word, max_width, scale=scale)
+        wrapped.extend(chunks[:-1])
+        current = chunks[-1] if chunks else ""
+    if current:
+        wrapped.append(current)
+    return wrapped
+
+
+def _wrap_long_token(text: str, max_width: int, *, scale: float) -> list[str]:
+    chunks: list[str] = []
+    current = ""
+    for character in text:
+        candidate = current + character
+        if current and _text_width(candidate, scale) > max_width:
+            chunks.append(current)
+            current = character
+        else:
+            current = candidate
+    if current:
+        chunks.append(current)
+    return chunks
 
 
 @dataclass(frozen=True, slots=True)

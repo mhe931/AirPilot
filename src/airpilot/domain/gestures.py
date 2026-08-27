@@ -24,13 +24,21 @@ class _PinchState:
 
 
 @dataclass(slots=True)
+class _ScrollState:
+    active: bool = False
+    anchor_y: float | None = None
+    accumulated_y: float = 0.0
+    last_emit_ms: int = -1_000_000
+
+
+@dataclass(slots=True)
 class GestureEngine:
     config: GestureConfig
     cursor_mapper: CursorMapper
     paused: bool = False
     _left: _PinchState = field(default_factory=_PinchState)
     _right: _PinchState = field(default_factory=_PinchState)
-    _scroll: _PinchState = field(default_factory=_PinchState)
+    _scroll: _ScrollState = field(default_factory=_ScrollState)
     _pause: _PinchState = field(default_factory=_PinchState)
     _drag_active: bool = False
     _last_left_click_ms: int = -1_000_000
@@ -38,7 +46,6 @@ class GestureEngine:
     _last_middle_click_ms: int = -1_000_000
     _last_seen_ms: int | None = None
     _tracking_lost_reported: bool = False
-    _scroll_anchor_y: float | None = None
 
     def process(self, frame: TrackingFrame) -> GestureEvents:
         hand = frame.hand
@@ -98,7 +105,12 @@ class GestureEngine:
 
         events = self._process_left(events, frame.timestamp_ms, left_now)
         events = self._process_right(events, frame.timestamp_ms, right_now)
-        events = self._process_scroll(events, hand.landmarks[RING_TIP], scroll_now)
+        events = self._process_scroll(
+            events,
+            frame.timestamp_ms,
+            hand.landmarks[WRIST],
+            scroll_now,
+        )
         return events
 
     def _handle_missing_hand(self, timestamp_ms: int) -> GestureEvents:
@@ -237,12 +249,12 @@ class GestureEngine:
     def _process_scroll(
         self,
         events: GestureEvents,
-        ring_tip: Landmark,
+        timestamp_ms: int,
+        reference: Landmark,
         active_now: bool,
     ) -> GestureEvents:
         if active_now and not self._scroll.active:
-            self._scroll = _PinchState(active=True)
-            self._scroll_anchor_y = ring_tip.y
+            self._scroll = _ScrollState(active=True, anchor_y=reference.y)
             return replace(
                 events,
                 move=None,
@@ -251,19 +263,22 @@ class GestureEngine:
             )
 
         if active_now and self._scroll.active:
-            anchor = self._scroll_anchor_y
+            anchor = self._scroll.anchor_y
             if anchor is None:
-                self._scroll_anchor_y = ring_tip.y
+                self._scroll.anchor_y = reference.y
                 return replace(
                     events,
                     move=None,
                     active_gesture="scrolling",
                     status="scrolling",
                 )
-            delta = ring_tip.y - anchor
-            steps = int(delta / self.config.scroll_activation_y_delta)
-            if steps:
-                self._scroll_anchor_y = ring_tip.y
+            delta = (reference.y - anchor) * self.config.scroll_sensitivity
+            self._scroll.anchor_y = reference.y
+            self._scroll.accumulated_y += delta
+            steps = int(self._scroll.accumulated_y / self.config.scroll_activation_y_delta)
+            if steps and timestamp_ms - self._scroll.last_emit_ms >= self.config.scroll_cooldown_ms:
+                self._scroll.accumulated_y -= steps * self.config.scroll_activation_y_delta
+                self._scroll.last_emit_ms = timestamp_ms
                 return replace(
                     events,
                     move=None,
@@ -277,10 +292,8 @@ class GestureEngine:
                 active_gesture="scrolling",
                 status="scrolling",
             )
-
         if not active_now and self._scroll.active:
-            self._scroll = _PinchState()
-            self._scroll_anchor_y = None
+            self._scroll = _ScrollState()
 
         return events
 
@@ -330,17 +343,15 @@ class GestureEngine:
             return False, False, True, False
         self._left = _PinchState()
         self._right = _PinchState()
-        self._scroll = _PinchState()
-        self._scroll_anchor_y = None
+        self._scroll = _ScrollState()
         return False, False, False, True
 
     def _reset_gesture_state(self) -> None:
         self._left = _PinchState()
         self._right = _PinchState()
-        self._scroll = _PinchState()
+        self._scroll = _ScrollState()
         self._pause = _PinchState()
         self._drag_active = False
-        self._scroll_anchor_y = None
 
 
 def _distance(hand: HandLandmarks, a: int, b: int) -> float:

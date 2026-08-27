@@ -10,8 +10,9 @@
 - Basic docs and CI.
 
 Status: implemented; follow-up hardening added actual-orientation pointer
-correction, two-hand shortcut mode, gesture help, and virtual-desktop monitor
-mapping. Manual multi-monitor and shortcut validation remains pending.
+correction, virtual-desktop monitor mapping, two-hand shortcut mode, detailed
+gesture help, Clipboard History, and accumulated scroll. Final physical
+validation for scroll/help/Clipboard History remains pending.
 
 ## Milestone 2: Windows Hardening
 

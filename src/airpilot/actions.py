@@ -13,6 +13,7 @@ SHORTCUT_GESTURES = {
     "shortcut_index_release",
     "shortcut_index_hold",
     "shortcut_middle_release",
+    "shortcut_middle_hold",
     "shortcut_ring_release",
     "shortcut_pinky_release",
 }
@@ -119,13 +120,14 @@ class ActionRouter:
 
         if active_now and state.active:
             started = state.started_ms if state.started_ms is not None else timestamp_ms
+            hold_gesture = f"shortcut_{name}_hold"
             if (
-                name == "index"
+                hold_gesture in self.actions.gesture_actions
                 and not state.consumed
                 and timestamp_ms - started >= self.gestures.shortcut_action_hold_ms
             ):
                 state.consumed = True
-                return self._emit(events, "shortcut_index_hold", timestamp_ms)
+                return self._emit(events, hold_gesture, timestamp_ms)
             return replace(events, active_gesture=f"shortcut_{name}")
 
         if not active_now and state.active:
@@ -254,40 +256,120 @@ def validate_action_config(actions: ActionConfig) -> None:
         _validate_shortcut(action_id, entry)
 
 
-def action_help_lines(actions: ActionConfig, *, max_actions: int = 5) -> list[str]:
+def action_help_lines(actions: ActionConfig, *, max_actions: int | None = None) -> list[str]:
     lines = [
-        "Mouse",
-        "Thumb + index pinch/release - Left click",
-        "Hold thumb + index - Drag; release to drop",
-        "Thumb + middle pinch/release - Right click",
-        "Hold thumb + middle - Middle click",
-        "Thumb + ring pinch + vertical movement - Scroll",
-        "Control",
-        "A - Arm/disarm mouse output",
-        "P - Pause/resume",
-        "H - Toggle this Help window",
-        "Q or Esc - Quit",
-        "Two-hand help gesture: hold second-hand thumb + index",
+        "PHILOSOPHY",
+        "- Frequent actions use easy one-hand gestures.",
+        "- Commands use deliberate two-hand Shortcut Mode.",
+        "- Risky/system actions stay disabled unless explicitly enabled.",
+        "- Continuous actions, such as scroll, stay active only while held.",
+        "",
+        "CORE MOUSE GESTURES",
+        "Move control hand / index reference | Move pointer | Continuous",
+        "Thumb + index pinch/release | Left click | Primary click",
+        "Thumb + index hold + move | Drag/drop | Release to drop",
+        "Thumb + middle pinch/release | Right click | Context menu",
+        "Thumb + middle long hold | Middle click | Consumes right click",
+        "Thumb + ring pinch + vertical hand movement | Scroll wheel | Move hand up/down",
+        "Open / neutral hand | Normal pointer state | Release active holds",
+        "",
+        "CONTROL",
+        "A | Arm/disarm mouse output",
+        "P | Pause/resume",
+        "H | Toggle this Help window",
+        "Q or Esc | Quit",
+        "Help gesture | Hold second-hand thumb + index",
+        "Shortcut Mode | Hold second-hand thumb + pinky",
     ]
     if actions.enabled:
-        enabled = [
-            f"{_gesture_label(gesture)} - {actions.catalog[action_id].label}"
-            for gesture, action_id in actions.gesture_actions.items()
-            if action_id in actions.catalog
-            and actions.catalog[action_id].enabled
-            and action_id != "ui.toggle_help"
-        ]
-        if enabled:
-            lines.append("Shortcut mode: hold second-hand thumb + pinky")
-            lines.extend(enabled[:max_actions])
-        risky = [
-            entry.label
-            for entry in actions.catalog.values()
-            if entry.risky and (not entry.enabled or not actions.risky_actions_enabled)
-        ]
-        if risky:
-            lines.append("Risky actions disabled by default: " + ", ".join(risky[:4]))
+        lines.extend(["", "SHORTCUT MODE", "Enter: hold second-hand thumb + pinky."])
+        mappings = _shortcut_mapping_lines(actions)
+        lines.extend(mappings if max_actions is None else mappings[:max_actions])
+    lines.extend(["", "AVAILABLE SHORTCUT ACTIONS"])
+    lines.extend(_catalog_lines(actions))
+    risky = _risky_lines(actions)
+    if risky:
+        lines.extend(["", "RISKY ACTIONS", *risky])
     return lines
+
+
+def _shortcut_mapping_lines(actions: ActionConfig) -> list[str]:
+    lines: list[str] = []
+    for gesture, action_id in actions.gesture_actions.items():
+        if action_id == "ui.toggle_help":
+            continue
+        entry = actions.catalog.get(action_id)
+        if entry is None:
+            continue
+        state = "enabled" if entry.enabled else "disabled"
+        lines.append(
+            f"{_gesture_label(gesture)} | {entry.label} | {_format_keys(entry.keys)} | {state}"
+        )
+    return lines
+
+
+def _catalog_lines(actions: ActionConfig) -> list[str]:
+    profile_labels = {
+        "editing": "Clipboard / Editing",
+        "windows": "Windows / System",
+        "browser": "Browser",
+        "presentation": "Presentation",
+        "media": "Media",
+        "ui": "UI",
+    }
+    by_profile: dict[str, list[str]] = {}
+    for entry in actions.catalog.values():
+        if entry.profile == "ui":
+            continue
+        state = "enabled" if entry.enabled else "available"
+        if entry.risky and (not entry.enabled or not actions.risky_actions_enabled):
+            state = "risky disabled"
+        by_profile.setdefault(entry.profile, []).append(
+            f"- {entry.label} `{_format_keys(entry.keys)}` ({state})"
+        )
+
+    lines: list[str] = []
+    known_profiles = ("editing", "windows", "browser", "presentation", "media")
+    for profile in known_profiles:
+        entries = by_profile.get(profile)
+        if not entries:
+            continue
+        lines.append(profile_labels.get(profile, profile.title()))
+        lines.extend(entries)
+    for profile in sorted(key for key in by_profile if key not in known_profiles):
+        entries = by_profile[profile]
+        lines.append(profile_labels.get(profile, profile.title()))
+        lines.extend(entries)
+    return lines
+
+
+def _risky_lines(actions: ActionConfig) -> list[str]:
+    lines: list[str] = []
+    for entry in actions.catalog.values():
+        if entry.risky:
+            state = (
+                "enabled"
+                if entry.enabled and actions.risky_actions_enabled
+                else "disabled by default"
+            )
+            lines.append(f"- {entry.label} `{_format_keys(entry.keys)}` - {state}")
+    return lines
+
+
+def _format_keys(keys: tuple[str, ...]) -> str:
+    labels = {
+        "ctrl": "Ctrl",
+        "shift": "Shift",
+        "alt": "Alt",
+        "win": "Win",
+        "left": "Left",
+        "right": "Right",
+        "up": "Up",
+        "down": "Down",
+        "tab": "Tab",
+        "esc": "Esc",
+    }
+    return "+".join(labels.get(key, key.upper() if len(key) == 1 else key.title()) for key in keys)
 
 
 def _validate_shortcut(action_id: str, entry: ShortcutConfig) -> None:
@@ -324,6 +406,7 @@ def _gesture_label(gesture_id: str) -> str:
         "shortcut_index_release": "Shortcut mode + thumb/index pinch",
         "shortcut_index_hold": "Shortcut mode + hold thumb/index",
         "shortcut_middle_release": "Shortcut mode + thumb/middle pinch",
+        "shortcut_middle_hold": "Shortcut mode + hold thumb/middle",
         "shortcut_ring_release": "Shortcut mode + thumb/ring pinch",
         "shortcut_pinky_release": "Shortcut mode + thumb/pinky pinch",
         "help_secondary_index_hold": "Second-hand thumb/index hold",
