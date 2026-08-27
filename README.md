@@ -13,10 +13,10 @@ Implemented:
 - OpenCV webcam capture with camera selection.
 - MediaPipe hand tracking.
 - Platform-independent gesture state machine with debounce, hysteresis,
-  cooldowns, drag lifecycle, scrolling, optional gesture pause/resume, and
-  tracking-loss safety.
+  cooldowns, click-location lock, deliberate drag lifecycle, scrolling, optional
+  gesture pause/resume, and tracking-loss safety.
 - Safe-by-default arming gate so real mouse control does not start until the
-  user presses `a` or passes `--armed`.
+  user presses `a`, performs the deliberate arm gesture, or passes `--armed`.
 - Smooth cursor mapping with calibration bounds, sensitivity, smoothing, and
   dead zone across the Windows virtual desktop.
 - Default actual-orientation preview with operator-facing pointer mapping:
@@ -31,8 +31,9 @@ Implemented:
 - Win32 virtual-desktop geometry and pointer movement so multi-monitor layouts,
   including monitors left or above the primary display, can be addressed.
 - Configurable shortcut action catalog with safe default two-hand shortcut mode.
-- Separate gesture/action help window, opened by `h` or a deliberate two-hand
-  help gesture, with complete gesture, shortcut, and safety reference content.
+- Separate glanceable help dashboard, opened by `h` or a deliberate two-hand
+  help gesture, with quick-start cards, gesture tables, shortcut mappings, and
+  safety reference content.
 - Config persistence under `%APPDATA%\AirPilot\config.json`.
 - Synthetic landmark tests that do not require a webcam or desktop automation.
 - Preview landmark drawing is compatible with the pinned MediaPipe package and
@@ -69,8 +70,9 @@ Run with real mouse control:
 uv run --extra dev airpilot --camera 0
 ```
 
-Real mouse mode starts in safe mode. Press `a` in the preview window to enable
-or disable pointer control. The preview shows an `AIRPILOT - DISARMED` or
+Real mouse mode starts in safe mode. Hold second-hand thumb + middle to arm, or
+press `a` in the preview window to enable or disable pointer control. The
+preview shows an `AIRPILOT - DISARMED` or
 `AIRPILOT - ACTIVE` banner so the current state is obvious without covering the
 camera view. Use `--armed` only when you intentionally want immediate control.
 
@@ -102,8 +104,10 @@ If your webcam feed is already non-mirrored at the driver level, you can change
 
 Default gestures:
 
-- Thumb + index pinch, then release: left click.
-- Thumb + index pinch and hold: drag; release to drop.
+- Second-hand thumb + middle hold: arm AirPilot from the disarmed startup state.
+- Thumb + index pinch, then release: left click. The pointer locks at the click
+  candidate position so pinch jitter does not move away from the target.
+- Thumb + index pinch and hold, then move deliberately: drag; release to drop.
 - Thumb + middle pinch, then release: right click.
 - Thumb + middle pinch and hold, then release: middle click.
 - Thumb + ring pinch while moving the hand vertically: scroll wheel. AirPilot
@@ -115,8 +119,11 @@ Default gestures:
 - Help window: hold thumb + index on the second hand.
 - Shortcut mode: hold thumb + pinky on the second hand, then use configured
   control-hand shortcut gestures. Defaults include copy, paste, clipboard
-  history (`Win+V` via thumb-middle hold), switch app, next slide, and previous
-  slide. Risky actions such as lock workstation and close window are disabled by
+  history (`Win+V` via thumb-middle hold), Task View (`Win+Tab` via
+  thumb-index hold), next slide, and previous slide. While Task View is open,
+  move the held hand left/right to select and release to open. The old Alt+Tab
+  action remains available in the catalog but is no longer a default gesture.
+  Risky actions such as lock workstation and close window are disabled by
   default.
 
 Pointer defaults intentionally favor responsiveness: a smaller active camera

@@ -212,6 +212,14 @@ def run(
             events = action_router.process(frame, events)
             if events.action_id == "ui.toggle_help":
                 operator_notice = _dispatch_ui_action(events.action_id, help_window)
+            elif events.action_id == "ui.arm":
+                operator_notice = _dispatch_ui_action(
+                    events.action_id,
+                    help_window,
+                    config=config,
+                    safety=safety,
+                    mouse_output_locked=mouse_output_locked,
+                )
             mouse_output_enabled = config.runtime.enable_real_mouse and not mouse_output_locked
             if mouse_output_enabled:
                 safety.apply(mouse, events)
@@ -314,6 +322,7 @@ def status_lines(
         config=config,
         armed=armed,
         paused=events.paused,
+        events=events,
         operator_notice=operator_notice,
         mouse_output_locked=mouse_output_locked,
     )
@@ -452,11 +461,31 @@ def _handle_keypress(
     return False, None
 
 
-def _dispatch_ui_action(action_id: str, help_window: HelpWindow | None) -> str | None:
-    if action_id != "ui.toggle_help" or help_window is None:
-        return None
-    visible = help_window.toggle()
-    return "Help opened" if visible else "Help closed"
+def _dispatch_ui_action(
+    action_id: str,
+    help_window: HelpWindow | None,
+    *,
+    config: AppConfig | None = None,
+    safety: MouseSafetyGate | None = None,
+    mouse_output_locked: bool = False,
+) -> str | None:
+    if action_id == "ui.toggle_help":
+        if help_window is None:
+            return None
+        visible = help_window.toggle()
+        return "Help opened" if visible else "Help closed"
+    if action_id == "ui.arm":
+        if mouse_output_locked:
+            return "Mouse output disabled for diagnostics/--no-mouse"
+        if safety is None:
+            return "Arm unavailable"
+        if safety.armed:
+            return "Already armed"
+        if config is not None and not config.runtime.enable_real_mouse:
+            config.runtime.enable_real_mouse = True
+        safety.armed = True
+        return "ARMED by gesture"
+    return None
 
 
 def _headline_text(
@@ -464,6 +493,7 @@ def _headline_text(
     config: AppConfig,
     armed: bool,
     paused: bool,
+    events: GestureEvents,
     operator_notice: str | None,
     mouse_output_locked: bool = False,
 ) -> tuple[str, str]:
@@ -475,10 +505,24 @@ def _headline_text(
         guidance = "Press P to resume gesture control"
     elif armed:
         headline = "AIRPILOT - ACTIVE"
-        guidance = "Mouse control enabled"
+        if events.active_gesture == "task_view_pending":
+            guidance = "TASK VIEW - hold index pinch"
+        elif events.active_gesture == "task_view":
+            guidance = "TASK VIEW - move left/right, release to open"
+        elif events.active_gesture == "task_view_select_right":
+            guidance = "TASK VIEW - next app"
+        elif events.active_gesture == "task_view_select_left":
+            guidance = "TASK VIEW - previous app"
+        elif events.active_gesture == "click_candidate":
+            guidance = "CLICK LOCK - release to click, move farther to drag"
+        else:
+            guidance = "Mouse control enabled"
     else:
         headline = "AIRPILOT - DISARMED"
-        guidance = "A = Enable Mouse | Q = Quit"
+        if events.active_gesture == "arm_pending":
+            guidance = "ARMING - hold second-hand thumb + middle"
+        else:
+            guidance = "Hold second-hand thumb+middle to arm | A = arm | Q = quit"
     if operator_notice is not None:
         guidance = operator_notice
     return headline, guidance
@@ -540,9 +584,9 @@ def _help_lines(config: AppConfig) -> list[str]:
 
 
 def _help_image(lines: Sequence[str]) -> MatLike:
-    width = 1480 if len(lines) > 48 else 860
-    line_height = 20
-    column_count = 3 if len(lines) > 72 else 2 if len(lines) > 48 else 1
+    width = 1760 if len(lines) > 72 else 1480 if len(lines) > 48 else 860
+    line_height = 18 if len(lines) > 72 else 20
+    column_count = 4 if len(lines) > 72 else 3 if len(lines) > 48 else 1
     column_width = width // column_count
     render_lines = _wrap_help_lines(lines, column_width - 32)
     rows = (len(render_lines) + column_count - 1) // column_count

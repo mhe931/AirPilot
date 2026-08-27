@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-CURRENT_SCHEMA_VERSION = 6
+CURRENT_SCHEMA_VERSION = 7
 
 _V4_CURSOR_DEFAULTS = {
     "camera_min_x": 0.08,
@@ -41,10 +41,20 @@ class GestureConfig:
     scroll_sensitivity: float = 1.4
     scroll_cooldown_ms: int = 35
     scroll_units_per_step: int = 2
+    click_freeze_radius_px: int = 16
+    drag_start_movement_px: int = 34
     shortcut_mode_hold_ms: int = 650
     shortcut_action_hold_ms: int = 650
     help_gesture_hold_ms: int = 900
     help_gesture_enabled: bool = True
+    arm_gesture_hold_ms: int = 1200
+    arm_gesture_enabled: bool = True
+    arm_pinch_threshold: float = 0.070
+    arm_pinch_release_threshold: float = 0.100
+    task_view_navigation_delta: float = 0.070
+    task_view_navigation_cooldown_ms: int = 300
+    task_view_confirm_on_release: bool = True
+    task_view_mirror_x: bool = True
     pause_gesture_enabled: bool = False
     action_cooldown_ms: int = 700
     click_cooldown_ms: int = 350
@@ -81,6 +91,7 @@ class ShortcutConfig:
 def _default_shortcut_catalog() -> dict[str, ShortcutConfig]:
     return {
         "ui.toggle_help": ShortcutConfig("Toggle help", (), "ui"),
+        "ui.arm": ShortcutConfig("Arm AirPilot", (), "ui"),
         "clipboard.copy": ShortcutConfig("Copy", ("ctrl", "c"), "editing"),
         "clipboard.paste": ShortcutConfig("Paste", ("ctrl", "v"), "editing"),
         "clipboard.cut": ShortcutConfig("Cut", ("ctrl", "x"), "editing", enabled=False),
@@ -152,6 +163,11 @@ def _default_shortcut_catalog() -> dict[str, ShortcutConfig]:
             enabled=False,
         ),
         "desktop.task_view": ShortcutConfig("Task view", ("win", "tab"), "windows", enabled=False),
+        "system.task_view": ShortcutConfig("Open Task View", ("win", "tab"), "windows"),
+        "task_view.next": ShortcutConfig("Task View select right", ("right",), "windows"),
+        "task_view.previous": ShortcutConfig("Task View select left", ("left",), "windows"),
+        "task_view.confirm": ShortcutConfig("Task View open selection", ("enter",), "windows"),
+        "task_view.cancel": ShortcutConfig("Task View cancel", ("esc",), "windows"),
         "system.lock": ShortcutConfig(
             "Lock workstation",
             ("win", "l"),
@@ -176,9 +192,9 @@ def _default_shortcut_catalog() -> dict[str, ShortcutConfig]:
 
 def _default_gesture_actions() -> dict[str, str]:
     return {
+        "arm_secondary_middle_hold": "ui.arm",
         "help_secondary_index_hold": "ui.toggle_help",
         "shortcut_index_release": "clipboard.copy",
-        "shortcut_index_hold": "window.switch",
         "shortcut_middle_release": "clipboard.paste",
         "shortcut_middle_hold": "clipboard.history",
         "shortcut_ring_release": "presentation.next_slide",
@@ -270,6 +286,8 @@ def _config_from_dict(raw: dict[str, Any]) -> AppConfig:
         return _migrate_v4_config(raw)
     if version == 5:
         return _migrate_v5_config(raw)
+    if version == 6:
+        return _migrate_v6_config(raw)
     if version != CURRENT_SCHEMA_VERSION:
         raise ValueError(f"Unsupported AirPilot config schema_version {version!r}")
     return AppConfig(
@@ -344,10 +362,20 @@ def _gestures_from_section(raw: dict[str, Any]) -> GestureConfig:
         "scroll_sensitivity": defaults.scroll_sensitivity,
         "scroll_cooldown_ms": defaults.scroll_cooldown_ms,
         "scroll_units_per_step": defaults.scroll_units_per_step,
+        "click_freeze_radius_px": defaults.click_freeze_radius_px,
+        "drag_start_movement_px": defaults.drag_start_movement_px,
         "shortcut_mode_hold_ms": defaults.shortcut_mode_hold_ms,
         "shortcut_action_hold_ms": defaults.shortcut_action_hold_ms,
         "help_gesture_hold_ms": defaults.help_gesture_hold_ms,
         "help_gesture_enabled": defaults.help_gesture_enabled,
+        "arm_gesture_hold_ms": defaults.arm_gesture_hold_ms,
+        "arm_gesture_enabled": defaults.arm_gesture_enabled,
+        "arm_pinch_threshold": defaults.arm_pinch_threshold,
+        "arm_pinch_release_threshold": defaults.arm_pinch_release_threshold,
+        "task_view_navigation_delta": defaults.task_view_navigation_delta,
+        "task_view_navigation_cooldown_ms": defaults.task_view_navigation_cooldown_ms,
+        "task_view_confirm_on_release": defaults.task_view_confirm_on_release,
+        "task_view_mirror_x": defaults.task_view_mirror_x,
         "pause_gesture_enabled": defaults.pause_gesture_enabled,
         "action_cooldown_ms": defaults.action_cooldown_ms,
         "click_cooldown_ms": defaults.click_cooldown_ms,
@@ -366,7 +394,7 @@ def _migrate_v4_config(raw: dict[str, Any]) -> AppConfig:
         schema_version=CURRENT_SCHEMA_VERSION,
         gestures=_gestures_from_section(_migrated_v6_gestures(_section(raw, "gestures"))),
         cursor=CursorConfig(**_migrated_v5_cursor(_section(raw, "cursor"))),
-        actions=_actions_from_section(_section(raw, "actions")),
+        actions=_actions_from_section(_migrated_v7_actions(_section(raw, "actions"))),
         runtime=RuntimeConfig(**runtime_section),
     )
 
@@ -376,7 +404,17 @@ def _migrate_v5_config(raw: dict[str, Any]) -> AppConfig:
         schema_version=CURRENT_SCHEMA_VERSION,
         gestures=_gestures_from_section(_migrated_v6_gestures(_section(raw, "gestures"))),
         cursor=CursorConfig(**_section(raw, "cursor")),
-        actions=_actions_from_section(_section(raw, "actions")),
+        actions=_actions_from_section(_migrated_v7_actions(_section(raw, "actions"))),
+        runtime=RuntimeConfig(**_section(raw, "runtime")),
+    )
+
+
+def _migrate_v6_config(raw: dict[str, Any]) -> AppConfig:
+    return AppConfig(
+        schema_version=CURRENT_SCHEMA_VERSION,
+        gestures=_gestures_from_section(_section(raw, "gestures")),
+        cursor=CursorConfig(**_section(raw, "cursor")),
+        actions=_actions_from_section(_migrated_v7_actions(_section(raw, "actions"))),
         runtime=RuntimeConfig(**_section(raw, "runtime")),
     )
 
@@ -397,6 +435,17 @@ def _migrated_v5_cursor(raw: dict[str, Any]) -> dict[str, Any]:
         if cursor_section.get(field_name) == old_value:
             cursor_section[field_name] = getattr(defaults, field_name)
     return cursor_section
+
+
+def _migrated_v7_actions(raw: dict[str, Any]) -> dict[str, Any]:
+    action_section = dict(raw)
+    gesture_actions = action_section.get("gesture_actions")
+    if isinstance(gesture_actions, dict):
+        migrated_gesture_actions = dict(gesture_actions)
+        if migrated_gesture_actions.get("shortcut_index_hold") == "window.switch":
+            migrated_gesture_actions.pop("shortcut_index_hold")
+        action_section["gesture_actions"] = migrated_gesture_actions
+    return action_section
 
 
 def _actions_from_section(raw: dict[str, Any]) -> ActionConfig:

@@ -363,6 +363,10 @@ def test_run_releases_drag_on_quit(
     points[16] = Landmark(0.20, 0.80)
     points[20] = Landmark(0.80, 0.80)
     hand = HandLandmarks(tuple(points))
+    moved_points = list(points)
+    moved_points[4] = Landmark(0.79, 0.50)
+    moved_points[8] = Landmark(0.80, 0.50)
+    moved_hand = HandLandmarks(tuple(moved_points))
 
     class FakeCamera:
         backend_name = "fake"
@@ -379,7 +383,8 @@ def test_run_releases_drag_on_quit(
 
     class FakeTracker:
         def track(self, _image: object, timestamp_ms: int) -> TrackingFrame:
-            return TrackingFrame(timestamp_ms=timestamp_ms, width=8, height=8, hand=hand)
+            tracked_hand = hand if timestamp_ms < 600 else moved_hand
+            return TrackingFrame(timestamp_ms=timestamp_ms, width=8, height=8, hand=tracked_hand)
 
         def draw(self, image: object, _hand: HandLandmarks | None) -> object:
             return image

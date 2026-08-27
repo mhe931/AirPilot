@@ -24,8 +24,8 @@ hardware-tuning work should use short-lived focused feature branches off `main`.
 - OpenCV webcam capture and camera listing.
 - MediaPipe hand tracking adapter.
 - Gesture state machine with hold thresholds, hysteresis, cooldowns, drag
-  lifecycle, scroll mode, optional gesture pause/resume, and tracking-loss
-  handling.
+  lifecycle, click-target lock, scroll mode, optional gesture pause/resume, and
+  tracking-loss handling.
 - Cursor mapper with calibration bounds, mirroring, smoothing, sensitivity, and
   dead-zone logic.
 - PyAutoGUI mouse adapter plus fake controller for tests.
@@ -43,6 +43,8 @@ hardware-tuning work should use short-lived focused feature branches off `main`.
   control hand and a secondary hand is retained for future interactions.
 - `A` enables/disables mouse output unless the run is explicitly locked by
   `--no-mouse` or diagnostics, avoiding ambiguous preview-only runtime state.
+- A deliberate second-hand thumb-middle hold can arm AirPilot from the disarmed
+  startup state without reaching for the keyboard.
 - Transient cursor feedback is behind a Windows-specific adapter and restored
   during cleanup.
 - Physical hand-right now maps to pointer-right while keeping the actual camera
@@ -51,9 +53,9 @@ hardware-tuning work should use short-lived focused feature branches off `main`.
   origins for monitors left or above the primary display.
 - Middle click is available through deliberate thumb-middle hold/release.
 - A separate gesture/action help window is available with `H` or a deliberate
-  second-hand thumb-index hold. The Help window now includes the interaction
-  philosophy, core gestures, controls, shortcut-mode mappings, grouped action
-  catalog, and risky-action notes.
+  second-hand thumb-index hold. The Help window is now a glanceable dashboard
+  with quick-start cards, core gestures, controls, shortcut-mode mappings,
+  grouped action catalog, Task View guidance, and risky-action notes.
 - A configurable shortcut action catalog and two-hand shortcut mode are
   implemented; risky actions are disabled by default. Clipboard History
   (`clipboard.history` / `Win+V`) is enabled by default through shortcut-mode
@@ -65,6 +67,13 @@ hardware-tuning work should use short-lived focused feature branches off `main`.
   smoothing, and a small dead zone for more responsive pointer movement.
 - Gesture pause is disabled by default to avoid accidental `PAUSED`; keyboard
   `P` remains available and the gesture can be re-enabled in config.
+- Thumb-index click candidates freeze the pointer at the intended target;
+  dragging now requires hold plus deliberate movement so long holds do not
+  become accidental drags.
+- The default app-switch flow is now Windows Task View: Shortcut Mode plus
+  thumb-index hold opens `Win+Tab`, hand movement sends left/right navigation,
+  and release confirms with Enter. Alt+Tab remains cataloged but is no longer a
+  default gesture.
 - Config persistence under `%APPDATA%\AirPilot\config.json`.
 - Synthetic tests for gestures, mapping, tracking loss/recovery, config, and
   fake mouse event application.
@@ -135,8 +144,8 @@ Last local automated validation:
 
 Manual live hand acquisition and real pointer gestures still must be run with a
 hand physically presented to the webcam for this follow-up. Required checks now
-focus on scroll up/down/control, Clipboard History, Help content/readability,
-and overall feel.
+focus on arm gesture, click accuracy, drag, Help glanceability, Task View,
+scroll up/down/control, Clipboard History, and overall feel.
 
 ## Known Issues
 
@@ -146,8 +155,9 @@ and overall feel.
 - Safe cursor feedback uses transient Windows cursor APIs rather than permanent
   system cursor replacement; behavior over other applications needs manual
   validation.
-- Two-hand shortcut mode and the two-hand help gesture are implemented but not
-  yet manually validated with two physical hands.
+- Two-hand shortcut mode, two-hand help, two-hand arm, and Task View gesture
+  navigation are implemented but not yet manually validated with two physical
+  hands.
 - MediaPipe emits a `NORM_RECT without IMAGE_DIMENSIONS` warning during live
   hand tracking; it did not reproduce as a crash and is not yet proven to cause
   incorrect gesture behavior in this milestone.
@@ -160,9 +170,12 @@ and overall feel.
 
 Update PR #7 from `feature/windows-actions-monitors`, run source/package
 validation and CI, then request compact human validation with:
-`scroll_up=<ok|fail> scroll_down=<ok|fail>
+`arm_gesture=<ok|fail> click_accuracy=<bad|good> drag=<ok|fail>
+help_glance=<bad|good> task_view_open=<ok|fail>
+task_view_left_right=<ok|fail> task_view_select=<ok|fail>
+scroll_up=<ok|fail> scroll_down=<ok|fail>
 scroll_control=<bad|good|too_fast|too_slow> clipboard_history=<ok|fail>
-help_content=<ok|fail> help_readable=<ok|fail> feel=<short note>`.
+feel=<short note>`.
 
 ## Decisions Not To Reverse Silently
 

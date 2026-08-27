@@ -51,7 +51,7 @@ def test_left_click_requires_hold_release_and_cooldown() -> None:
     assert not sut.process(frame(0)).left_click
     active = sut.process(frame(100, index=(0.51, 0.50)))
     assert not active.left_click
-    assert active.active_gesture == "left_pinch"
+    assert active.active_gesture == "click_candidate"
     clicked = sut.process(frame(220))
     assert clicked.left_click
     assert clicked.active_gesture == "left_click"
@@ -74,7 +74,7 @@ def test_drag_lifecycle_consumes_click() -> None:
     sut = engine()
 
     assert not sut.process(frame(0, index=(0.51, 0.50))).drag_start
-    drag = sut.process(frame(500, index=(0.51, 0.50)))
+    drag = sut.process(frame(500, thumb=(0.69, 0.50), index=(0.70, 0.50)))
     assert drag.drag_start
     assert drag.active_gesture == "dragging"
 
@@ -84,11 +84,38 @@ def test_drag_lifecycle_consumes_click() -> None:
     assert not release.left_click
 
 
+def test_left_click_freezes_pointer_during_candidate_jitter() -> None:
+    sut = engine()
+
+    start = sut.process(frame(0, index=(0.40, 0.50)))
+    candidate = sut.process(frame(100, index=(0.51, 0.50)))
+    jitter = sut.process(frame(180, index=(0.53, 0.50)))
+    clicked = sut.process(frame(240, index=(0.70, 0.50)))
+
+    assert start.move is not None
+    assert candidate.move == start.move
+    assert jitter.move == start.move
+    assert clicked.move == start.move
+    assert clicked.left_click
+
+
+def test_long_left_hold_without_movement_remains_click_candidate() -> None:
+    sut = engine()
+
+    sut.process(frame(0, index=(0.51, 0.50)))
+    held = sut.process(frame(700, index=(0.51, 0.50)))
+    released = sut.process(frame(760))
+
+    assert held.active_gesture == "click_candidate"
+    assert not held.drag_start
+    assert released.left_click
+
+
 def test_pause_during_drag_releases_drag() -> None:
     sut = pause_engine()
 
     sut.process(frame(0, index=(0.51, 0.50)))
-    assert sut.process(frame(500, index=(0.51, 0.50))).drag_start
+    assert sut.process(frame(500, thumb=(0.69, 0.50), index=(0.70, 0.50))).drag_start
     sut.process(frame(600, pinky=(0.51, 0.50)))
     paused = sut.process(frame(1500, pinky=(0.51, 0.50)))
 
@@ -101,7 +128,7 @@ def test_keyboard_pause_toggle_releases_drag() -> None:
     sut = engine()
 
     sut.process(frame(0, index=(0.51, 0.50)))
-    assert sut.process(frame(500, index=(0.51, 0.50))).drag_start
+    assert sut.process(frame(500, thumb=(0.69, 0.50), index=(0.70, 0.50))).drag_start
     toggled = sut.toggle_pause()
 
     assert toggled.paused
@@ -288,7 +315,7 @@ def test_tracking_loss_releases_drag() -> None:
     sut = engine()
 
     sut.process(frame(0, index=(0.51, 0.50)))
-    assert sut.process(frame(500, index=(0.51, 0.50))).drag_start
+    assert sut.process(frame(500, thumb=(0.69, 0.50), index=(0.70, 0.50))).drag_start
     lost = sut.process(frame(510, hand=None))
     assert lost.drag_end
     assert lost.tracking_lost

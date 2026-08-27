@@ -67,8 +67,8 @@ powershell -ExecutionPolicy Bypass -File scripts/package_windows.ps1
 - Python project metadata and locked dependencies.
 - MediaPipe/OpenCV/PyAutoGUI Windows runtime.
 - Explicit gesture state machine with cooldowns, hysteresis, click hold
-  thresholds, drag state, scroll state, optional gesture pause state, and
-  tracking-loss handling.
+  thresholds, click-target lock, deliberate drag state, scroll state, optional
+  gesture pause state, and tracking-loss handling.
 - Cursor mapper with calibration, mirroring, smoothing, sensitivity, and
   dead-zone behavior over Windows virtual-desktop coordinates.
 - Config persistence with schema versioning.
@@ -86,6 +86,8 @@ powershell -ExecutionPolicy Bypass -File scripts/package_windows.ps1
   control hand and a secondary hand reserved for future gestures.
 - Mouse activation is explicit in the preview: `A` enables/disables mouse output
   unless the run was intentionally started with `--no-mouse` or diagnostics.
+- Mouse activation can also be armed with a deliberate second-hand thumb-middle
+  hold from the disarmed startup state.
 - Windows cursor feedback is encapsulated behind an adapter and restored during
   shutdown; it uses transient OS cursor calls rather than permanent system
   cursor replacement.
@@ -104,19 +106,25 @@ powershell -ExecutionPolicy Bypass -File scripts/package_windows.ps1
   shortcut-mode thumb-middle hold.
 - Middle click is available via a deliberate thumb-middle hold/release.
 - The preview stays compact; full gesture/action help opens in a separate window
-  with `H` or a deliberate second-hand thumb-index hold, and contains generated
-  gesture philosophy, mappings, action catalog, and safety notes.
+  with `H` or a deliberate second-hand thumb-index hold, and contains a
+  glanceable quick-start dashboard, mappings, action catalog, Task View guidance,
+  and safety notes.
 - Scroll uses thumb-ring pinch plus accumulated vertical wrist movement with
   configurable sensitivity/cooldown while suppressing pointer movement.
 - Gesture pause is disabled by default to prevent accidental `PAUSED`; keyboard
   `P` still pauses/resumes, and config can explicitly re-enable the gesture.
 - Pointer defaults now favor responsiveness with tighter camera bounds, higher
   sensitivity, lighter smoothing, and a small dead zone.
+- Click candidates freeze the pointer target; drag starts only after a hold plus
+  deliberate movement.
+- Default app switching uses Task View: Shortcut Mode plus thumb-index hold opens
+  `Win+Tab`, hand movement sends left/right, and release confirms with Enter.
 
 ## Known Issues
 
-- Manual validation is still required for scroll up/down/control, Clipboard
-  History, Help content/readability, and feel before merging PR #7.
+- Manual validation is still required for arm gesture, click accuracy, drag,
+  Help glanceability, Task View, scroll up/down/control, Clipboard History, and
+  feel before merging PR #7.
 - Packaged executable is unsigned.
 - Camera unplug/replug recovery now retries reopening the same camera index, but
   recovery still depends on Windows presenting the device again on that index.
@@ -140,9 +148,12 @@ powershell -ExecutionPolicy Bypass -File scripts/package_windows.ps1
 ## Next Task
 
 Run the compact live validation checklist and collect:
-`scroll_up=<ok|fail> scroll_down=<ok|fail>
+`arm_gesture=<ok|fail> click_accuracy=<bad|good> drag=<ok|fail>
+help_glance=<bad|good> task_view_open=<ok|fail>
+task_view_left_right=<ok|fail> task_view_select=<ok|fail>
+scroll_up=<ok|fail> scroll_down=<ok|fail>
 scroll_control=<bad|good|too_fast|too_slow> clipboard_history=<ok|fail>
-help_content=<ok|fail> help_readable=<ok|fail> feel=<short note>`.
+feel=<short note>`.
 
 ## Decisions Not To Silently Reverse
 

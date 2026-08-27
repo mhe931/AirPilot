@@ -3,6 +3,7 @@ import numpy as np
 from airpilot.app import (
     HelpWindow,
     TrackingStats,
+    _dispatch_ui_action,
     _handle_keypress,
     _help_image,
     _help_lines,
@@ -25,19 +26,49 @@ def test_status_lines_show_tracking_gesture_and_safe_mouse() -> None:
     )
     lines = status_lines(
         frame,
-        GestureEvents(active_gesture="left_pinch", status="tracking"),
+        GestureEvents(active_gesture="click_candidate", status="tracking"),
         AppConfig(),
         armed=False,
         fps=29.6,
     )
 
     assert lines[0] == "AIRPILOT - DISARMED"
-    assert "A = Enable Mouse" in lines[1]
+    assert "thumb+middle to arm" in lines[1]
     assert "tracking hand" in lines[2]
-    assert "left_pinch" in lines[2]
+    assert "click_candidate" in lines[2]
     assert "control" in lines[2]
     assert "A arm" in lines[3]
     assert not any("Thumb + index" in line for line in lines)
+
+
+def test_status_lines_show_task_view_guidance() -> None:
+    frame = TrackingFrame(timestamp_ms=0, width=640, height=480, hand=None)
+
+    lines = status_lines(
+        frame,
+        GestureEvents(active_gesture="task_view", status="task_view"),
+        AppConfig(),
+        armed=True,
+        fps=24.0,
+    )
+
+    assert lines[0] == "AIRPILOT - ACTIVE"
+    assert "move left/right" in lines[1]
+
+
+def test_status_lines_show_arm_gesture_progress() -> None:
+    frame = TrackingFrame(timestamp_ms=0, width=640, height=480, hand=None)
+
+    lines = status_lines(
+        frame,
+        GestureEvents(active_gesture="arm_pending", status="arm_pending"),
+        AppConfig(),
+        armed=False,
+        fps=24.0,
+    )
+
+    assert lines[0] == "AIRPILOT - DISARMED"
+    assert "ARMING" in lines[1]
 
 
 def test_status_lines_show_mouse_off_for_no_mouse_mode() -> None:
@@ -150,6 +181,36 @@ def test_h_key_toggles_help_window() -> None:
     assert help_window.visible is False
 
 
+def test_gesture_arm_enables_mouse_output_when_config_was_disabled() -> None:
+    config = AppConfig()
+    config.runtime.enable_real_mouse = False
+    safety = MouseSafetyGate()
+
+    notice = _dispatch_ui_action("ui.arm", None, config=config, safety=safety)
+
+    assert notice == "ARMED by gesture"
+    assert config.runtime.enable_real_mouse is True
+    assert safety.armed is True
+
+
+def test_gesture_arm_respects_mouse_output_lock() -> None:
+    config = AppConfig()
+    config.runtime.enable_real_mouse = False
+    safety = MouseSafetyGate()
+
+    notice = _dispatch_ui_action(
+        "ui.arm",
+        None,
+        config=config,
+        safety=safety,
+        mouse_output_locked=True,
+    )
+
+    assert notice == "Mouse output disabled for diagnostics/--no-mouse"
+    assert config.runtime.enable_real_mouse is False
+    assert safety.armed is False
+
+
 def test_help_window_update_reuses_single_window(monkeypatch: object) -> None:
     calls: list[str] = []
     help_window = HelpWindow(visible=True)
@@ -187,10 +248,12 @@ def test_help_content_is_readable_and_renderable() -> None:
     image = _help_image(lines)
 
     assert "AirPilot Help" in lines
+    assert "QUICK START" in lines
     assert "PHILOSOPHY" in lines
     assert "CORE MOUSE GESTURES" in lines
     assert "SHORTCUT MODE" in lines
     assert "AVAILABLE SHORTCUT ACTIONS" in lines
+    assert any("Task View" in line for line in lines)
     assert any("Thumb + index pinch/release | Left click" in line for line in lines)
     assert any("Clipboard history `Win+V`" in line for line in lines)
     assert isinstance(image, np.ndarray)

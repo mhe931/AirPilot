@@ -344,6 +344,59 @@
         "profile": "windows",
         "risky": false
       },
+      "system.task_view": {
+        "enabled": true,
+        "keys": [
+          "win",
+          "tab"
+        ],
+        "label": "Open Task View",
+        "profile": "windows",
+        "risky": false
+      },
+      "task_view.cancel": {
+        "enabled": true,
+        "keys": [
+          "esc"
+        ],
+        "label": "Task View cancel",
+        "profile": "windows",
+        "risky": false
+      },
+      "task_view.confirm": {
+        "enabled": true,
+        "keys": [
+          "enter"
+        ],
+        "label": "Task View open selection",
+        "profile": "windows",
+        "risky": false
+      },
+      "task_view.next": {
+        "enabled": true,
+        "keys": [
+          "right"
+        ],
+        "label": "Task View select right",
+        "profile": "windows",
+        "risky": false
+      },
+      "task_view.previous": {
+        "enabled": true,
+        "keys": [
+          "left"
+        ],
+        "label": "Task View select left",
+        "profile": "windows",
+        "risky": false
+      },
+      "ui.arm": {
+        "enabled": true,
+        "keys": [],
+        "label": "Arm AirPilot",
+        "profile": "ui",
+        "risky": false
+      },
       "ui.toggle_help": {
         "enabled": true,
         "keys": [],
@@ -425,8 +478,8 @@
     },
     "enabled": true,
     "gesture_actions": {
+      "arm_secondary_middle_hold": "ui.arm",
       "help_secondary_index_hold": "ui.toggle_help",
-      "shortcut_index_hold": "window.switch",
       "shortcut_index_release": "clipboard.copy",
       "shortcut_middle_hold": "clipboard.history",
       "shortcut_middle_release": "clipboard.paste",
@@ -452,8 +505,14 @@
   },
   "gestures": {
     "action_cooldown_ms": 700,
+    "arm_gesture_enabled": true,
+    "arm_gesture_hold_ms": 1200,
+    "arm_pinch_release_threshold": 0.1,
+    "arm_pinch_threshold": 0.07,
     "click_cooldown_ms": 350,
+    "click_freeze_radius_px": 16,
     "drag_hold_ms": 450,
+    "drag_start_movement_px": 34,
     "help_gesture_enabled": true,
     "help_gesture_hold_ms": 900,
     "min_click_hold_ms": 80,
@@ -473,6 +532,10 @@
     "scroll_units_per_step": 2,
     "shortcut_action_hold_ms": 650,
     "shortcut_mode_hold_ms": 650,
+    "task_view_confirm_on_release": true,
+    "task_view_mirror_x": true,
+    "task_view_navigation_cooldown_ms": 300,
+    "task_view_navigation_delta": 0.07,
     "tracking_loss_grace_ms": 250
   },
   "runtime": {
@@ -490,5 +553,5 @@
     "tracker_detection_confidence": 0.55,
     "tracker_tracking_confidence": 0.55
   },
-  "schema_version": 6
+  "schema_version": 7
 }

@@ -8,7 +8,13 @@ from airpilot.actions import (
 )
 from airpilot.config import ActionConfig, GestureConfig, ShortcutConfig
 from airpilot.domain.gestures import INDEX_TIP, MIDDLE_TIP, PINKY_TIP, RING_TIP, THUMB_TIP
-from airpilot.domain.types import GestureEvents, HandLandmarks, Landmark, TrackingFrame
+from airpilot.domain.types import (
+    CursorPosition,
+    GestureEvents,
+    HandLandmarks,
+    Landmark,
+    TrackingFrame,
+)
 from airpilot.input import RecordingMouseController
 
 
@@ -96,6 +102,15 @@ def test_clipboard_history_uses_fake_win_v_shortcut() -> None:
     assert dispatch_action(actions, mouse, "clipboard.history") == "Clipboard history"
 
     assert mouse.actions == ["hotkey:win+v"]
+
+
+def test_default_actions_use_task_view_instead_of_alt_tab_gesture() -> None:
+    actions = ActionConfig()
+
+    assert actions.gesture_actions["arm_secondary_middle_hold"] == "ui.arm"
+    assert "shortcut_index_hold" not in actions.gesture_actions
+    assert actions.catalog["system.task_view"].keys == ("win", "tab")
+    assert actions.catalog["window.switch"].keys == ("alt", "tab")
 
 
 def test_action_router_requires_two_hand_shortcut_mode_before_shortcut() -> None:
@@ -230,6 +245,441 @@ def test_action_router_toggles_help_with_secondary_index_hold() -> None:
     assert still_held.action_id is None
     assert not still_held.left_click
     assert still_held.scroll == 0
+
+
+def test_action_router_arms_with_secondary_middle_hold() -> None:
+    router = ActionRouter(ActionConfig(), GestureConfig(arm_gesture_hold_ms=500))
+    control = _hand()
+    secondary = _hand(middle=(0.51, 0.50))
+
+    pending = router.process(
+        TrackingFrame(
+            timestamp_ms=0,
+            width=640,
+            height=480,
+            hand=control,
+            hands=(control, secondary),
+        ),
+        GestureEvents(left_click=True),
+    )
+    assert pending.active_gesture == "arm_pending"
+    assert not pending.left_click
+    assert pending.action_id is None
+
+    armed = router.process(
+        TrackingFrame(
+            timestamp_ms=600,
+            width=640,
+            height=480,
+            hand=control,
+            hands=(control, secondary),
+        ),
+        GestureEvents(),
+    )
+    assert armed.action_id == "ui.arm"
+    assert armed.action_label == "Arm AirPilot"
+
+    still_held = router.process(
+        TrackingFrame(
+            timestamp_ms=1300,
+            width=640,
+            height=480,
+            hand=control,
+            hands=(control, secondary),
+        ),
+        GestureEvents(),
+    )
+    assert still_held.action_id is None
+
+
+def test_action_router_task_view_opens_navigates_and_confirms() -> None:
+    router = ActionRouter(
+        ActionConfig(),
+        GestureConfig(
+            shortcut_mode_hold_ms=0,
+            shortcut_action_hold_ms=500,
+            task_view_navigation_delta=0.05,
+            task_view_navigation_cooldown_ms=250,
+            task_view_mirror_x=False,
+        ),
+    )
+    secondary = _hand(pinky=(0.51, 0.50))
+    pending_control = _hand(index=(0.51, 0.50))
+
+    pending = router.process(
+        TrackingFrame(
+            timestamp_ms=0,
+            width=640,
+            height=480,
+            hand=pending_control,
+            hands=(pending_control, secondary),
+        ),
+        GestureEvents(move=CursorPosition(10, 10)),
+    )
+    assert pending.active_gesture == "task_view_pending"
+    assert pending.move is None
+
+    held_control = _hand(index=(0.51, 0.50))
+    opened = router.process(
+        TrackingFrame(
+            timestamp_ms=600,
+            width=640,
+            height=480,
+            hand=held_control,
+            hands=(held_control, secondary),
+        ),
+        GestureEvents(),
+    )
+    assert opened.action_id == "system.task_view"
+
+    right_control = _hand(thumb=(0.59, 0.50), index=(0.60, 0.50))
+    next_app = router.process(
+        TrackingFrame(
+            timestamp_ms=900,
+            width=640,
+            height=480,
+            hand=right_control,
+            hands=(right_control, secondary),
+        ),
+        GestureEvents(left_click=True),
+    )
+    assert next_app.action_id == "task_view.next"
+    assert not next_app.left_click
+
+    cooldown_control = _hand(thumb=(0.69, 0.50), index=(0.70, 0.50))
+    cooldown = router.process(
+        TrackingFrame(
+            timestamp_ms=950,
+            width=640,
+            height=480,
+            hand=cooldown_control,
+            hands=(cooldown_control, secondary),
+        ),
+        GestureEvents(),
+    )
+    assert cooldown.action_id is None
+    assert cooldown.status == "task_view_cooldown"
+
+    release_control = _hand(index=(0.70, 0.50))
+    confirmed = router.process(
+        TrackingFrame(
+            timestamp_ms=1300,
+            width=640,
+            height=480,
+            hand=release_control,
+            hands=(release_control, secondary),
+        ),
+        GestureEvents(),
+    )
+    assert confirmed.action_id == "task_view.confirm"
+
+
+def test_action_router_task_view_confirms_when_both_hands_release() -> None:
+    router = ActionRouter(
+        ActionConfig(),
+        GestureConfig(
+            shortcut_mode_hold_ms=0,
+            shortcut_action_hold_ms=500,
+            task_view_confirm_on_release=True,
+        ),
+    )
+    secondary = _hand(pinky=(0.51, 0.50))
+    control = _hand(index=(0.51, 0.50))
+
+    router.process(
+        TrackingFrame(
+            timestamp_ms=0,
+            width=640,
+            height=480,
+            hand=control,
+            hands=(control, secondary),
+        ),
+        GestureEvents(),
+    )
+    router.process(
+        TrackingFrame(
+            timestamp_ms=600,
+            width=640,
+            height=480,
+            hand=control,
+            hands=(control, secondary),
+        ),
+        GestureEvents(),
+    )
+    released = router.process(
+        TrackingFrame(timestamp_ms=700, width=640, height=480, hand=_hand()),
+        GestureEvents(),
+    )
+
+    assert released.action_id == "task_view.confirm"
+
+
+def test_action_router_task_view_cancels_when_shortcut_mode_drops_but_index_stays_held() -> None:
+    router = ActionRouter(
+        ActionConfig(),
+        GestureConfig(
+            shortcut_mode_hold_ms=0,
+            shortcut_action_hold_ms=500,
+            task_view_confirm_on_release=True,
+        ),
+    )
+    secondary = _hand(pinky=(0.51, 0.50))
+    control = _hand(index=(0.51, 0.50))
+
+    router.process(
+        TrackingFrame(
+            timestamp_ms=0,
+            width=640,
+            height=480,
+            hand=control,
+            hands=(control, secondary),
+        ),
+        GestureEvents(),
+    )
+    router.process(
+        TrackingFrame(
+            timestamp_ms=600,
+            width=640,
+            height=480,
+            hand=control,
+            hands=(control, secondary),
+        ),
+        GestureEvents(),
+    )
+    cancelled = router.process(
+        TrackingFrame(timestamp_ms=700, width=640, height=480, hand=control),
+        GestureEvents(),
+    )
+
+    assert cancelled.action_id == "task_view.cancel"
+
+    release = router.process(
+        TrackingFrame(timestamp_ms=800, width=640, height=480, hand=_hand()),
+        GestureEvents(left_click=True),
+    )
+    assert release.action_id is None
+    assert not release.left_click
+
+
+def test_action_router_task_view_cancel_suppression_survives_missing_hand() -> None:
+    router = ActionRouter(
+        ActionConfig(),
+        GestureConfig(
+            shortcut_mode_hold_ms=0,
+            shortcut_action_hold_ms=500,
+            task_view_confirm_on_release=True,
+        ),
+    )
+    secondary = _hand(pinky=(0.51, 0.50))
+    held_control = _hand(index=(0.51, 0.50))
+
+    router.process(
+        TrackingFrame(
+            timestamp_ms=0,
+            width=640,
+            height=480,
+            hand=held_control,
+            hands=(held_control, secondary),
+        ),
+        GestureEvents(),
+    )
+    router.process(
+        TrackingFrame(
+            timestamp_ms=600,
+            width=640,
+            height=480,
+            hand=held_control,
+            hands=(held_control, secondary),
+        ),
+        GestureEvents(),
+    )
+    router.process(
+        TrackingFrame(timestamp_ms=700, width=640, height=480, hand=held_control),
+        GestureEvents(),
+    )
+    missing = router.process(
+        TrackingFrame(timestamp_ms=720, width=640, height=480, hand=None),
+        GestureEvents(),
+    )
+    reappeared = router.process(
+        TrackingFrame(timestamp_ms=740, width=640, height=480, hand=held_control),
+        GestureEvents(),
+    )
+    release = router.process(
+        TrackingFrame(timestamp_ms=800, width=640, height=480, hand=_hand()),
+        GestureEvents(left_click=True),
+    )
+
+    assert missing.active_gesture == "shortcut_cancel_pending"
+    assert reappeared.active_gesture == "shortcut_cancel_pending"
+    assert release.action_id is None
+    assert not release.left_click
+
+
+def test_action_router_task_view_cancel_suppression_waits_for_release_threshold() -> None:
+    router = ActionRouter(
+        ActionConfig(),
+        GestureConfig(
+            shortcut_mode_hold_ms=0,
+            shortcut_action_hold_ms=500,
+            pinch_threshold=0.055,
+            pinch_release_threshold=0.075,
+            task_view_confirm_on_release=True,
+        ),
+    )
+    secondary = _hand(pinky=(0.51, 0.50))
+    held_control = _hand(index=(0.51, 0.50))
+    between_thresholds = _hand(index=(0.565, 0.50))
+
+    router.process(
+        TrackingFrame(
+            timestamp_ms=0,
+            width=640,
+            height=480,
+            hand=held_control,
+            hands=(held_control, secondary),
+        ),
+        GestureEvents(),
+    )
+    router.process(
+        TrackingFrame(
+            timestamp_ms=600,
+            width=640,
+            height=480,
+            hand=held_control,
+            hands=(held_control, secondary),
+        ),
+        GestureEvents(),
+    )
+    router.process(
+        TrackingFrame(timestamp_ms=700, width=640, height=480, hand=held_control),
+        GestureEvents(),
+    )
+    router.process(
+        TrackingFrame(timestamp_ms=720, width=640, height=480, hand=None),
+        GestureEvents(),
+    )
+    still_suppressed = router.process(
+        TrackingFrame(timestamp_ms=740, width=640, height=480, hand=between_thresholds),
+        GestureEvents(left_click=True),
+    )
+    released = router.process(
+        TrackingFrame(timestamp_ms=800, width=640, height=480, hand=_hand()),
+        GestureEvents(left_click=True),
+    )
+
+    assert still_suppressed.active_gesture == "shortcut_cancel_pending"
+    assert not still_suppressed.left_click
+    assert released.active_gesture == "shortcut_cancel_release"
+    assert not released.left_click
+
+
+def test_action_router_clears_pending_task_view_when_shortcut_mode_cancels() -> None:
+    router = ActionRouter(
+        ActionConfig(),
+        GestureConfig(shortcut_mode_hold_ms=0, shortcut_action_hold_ms=500),
+    )
+    secondary = _hand(pinky=(0.51, 0.50))
+    held_control = _hand(index=(0.51, 0.50))
+
+    router.process(
+        TrackingFrame(
+            timestamp_ms=0,
+            width=640,
+            height=480,
+            hand=held_control,
+            hands=(held_control, secondary),
+        ),
+        GestureEvents(),
+    )
+    cancelled = router.process(
+        TrackingFrame(timestamp_ms=100, width=640, height=480, hand=held_control),
+        GestureEvents(),
+    )
+    released_outside_mode = router.process(
+        TrackingFrame(timestamp_ms=200, width=640, height=480, hand=_hand()),
+        GestureEvents(left_click=True),
+    )
+    neutral_reentry = router.process(
+        TrackingFrame(
+            timestamp_ms=300,
+            width=640,
+            height=480,
+            hand=_hand(),
+            hands=(_hand(), secondary),
+        ),
+        GestureEvents(),
+    )
+
+    assert cancelled.action_id is None
+    assert released_outside_mode.action_id is None
+    assert not released_outside_mode.left_click
+    assert neutral_reentry.action_id is None
+
+
+def test_action_router_disabled_task_view_does_not_emit_navigation_or_confirm() -> None:
+    actions = ActionConfig()
+    actions.catalog["system.task_view"].enabled = False
+    router = ActionRouter(
+        actions,
+        GestureConfig(
+            shortcut_mode_hold_ms=0,
+            shortcut_action_hold_ms=500,
+            task_view_navigation_delta=0.05,
+            task_view_navigation_cooldown_ms=0,
+            task_view_mirror_x=False,
+        ),
+    )
+    secondary = _hand(pinky=(0.51, 0.50))
+
+    start_control = _hand(index=(0.51, 0.50))
+    router.process(
+        TrackingFrame(
+            timestamp_ms=0,
+            width=640,
+            height=480,
+            hand=start_control,
+            hands=(start_control, secondary),
+        ),
+        GestureEvents(),
+    )
+    disabled = router.process(
+        TrackingFrame(
+            timestamp_ms=600,
+            width=640,
+            height=480,
+            hand=start_control,
+            hands=(start_control, secondary),
+        ),
+        GestureEvents(),
+    )
+
+    move_control = _hand(thumb=(0.69, 0.50), index=(0.70, 0.50))
+    moved = router.process(
+        TrackingFrame(
+            timestamp_ms=800,
+            width=640,
+            height=480,
+            hand=move_control,
+            hands=(move_control, secondary),
+        ),
+        GestureEvents(),
+    )
+    released = router.process(
+        TrackingFrame(
+            timestamp_ms=1000,
+            width=640,
+            height=480,
+            hand=_hand(),
+            hands=(_hand(), secondary),
+        ),
+        GestureEvents(),
+    )
+
+    assert disabled.active_gesture == "task_view_disabled"
+    assert disabled.action_id is None
+    assert moved.action_id is None
+    assert released.action_id is None
 
 
 def test_action_router_help_gesture_suppresses_mouse_events() -> None:

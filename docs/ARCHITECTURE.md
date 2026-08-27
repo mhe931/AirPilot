@@ -35,15 +35,18 @@ the existing gesture engine. MediaPipe is configured for up to two hands. The
 control-hand policy is deterministic: prefer a detected right hand, otherwise a
 left hand, otherwise the first unknown hand. The secondary hand gates shortcut
 mode by requiring an intentional second-hand thumb-pinky hold before shortcut
-gestures can emit keyboard actions. A separate second-hand thumb-index hold
-toggles the help window without entering shortcut mode.
+gestures can emit keyboard actions. Separate second-hand holds arm AirPilot
+(thumb-middle) and toggle the help dashboard (thumb-index) without entering
+shortcut mode.
 
 ## Gesture Safety
 
 Gestures are explicit states rather than one-frame classifications:
 
-- Clicks require hold and release.
-- Dragging requires a longer hold and consumes the click.
+- Clicks require hold and release. A click candidate locks the cursor position so
+  pinch jitter does not move the click target.
+- Dragging requires a longer hold plus deliberate movement and consumes the
+  click.
 - Pinch thresholds use release hysteresis.
 - Clicks have cooldowns.
 - Scroll uses an explicit held state with pinch hysteresis, accumulated vertical
@@ -51,7 +54,8 @@ Gestures are explicit states rather than one-frame classifications:
 - Tracking loss resets pending gestures and releases active drag.
 - Paused mode suppresses movement and actions; the keyboard pause control is
   always available, while gesture pause is opt-in to reduce accidental pauses.
-- Real mouse output is gated by an explicit safe/active state.
+- Real mouse output is gated by an explicit safe/active state and can be armed
+  with the preview key or the deliberate second-hand arm gesture.
 - `--no-mouse` and diagnostics lock output off for that run; otherwise `A`
   enables/disables output even if a loaded config had mouse output disabled.
 - Conflicting new pinches are canceled rather than emitted as combined actions.
@@ -62,17 +66,21 @@ Gestures are explicit states rather than one-frame classifications:
 
 Default gestures:
 
-- Thumb-index: left click on short release, drag on hold.
+- Thumb-index: left click on release, with target lock while held; drag starts
+  only after hold plus deliberate movement.
 - Thumb-middle: right click.
 - Thumb-middle hold: middle click.
 - Thumb-ring: scroll mode; while held, accumulated vertical wrist movement emits
   repeated wheel events and suppresses pointer movement.
 - Thumb-pinky: optional pause/resume hold when enabled in config.
-- Second-hand thumb-index hold: toggle the separate help window.
+- Second-hand thumb-middle hold: arm from the disarmed startup state.
+- Second-hand thumb-index hold: toggle the separate help dashboard.
 - Second-hand thumb-pinky hold: shortcut mode; configured shortcut gestures emit
-  enabled catalog actions such as copy, paste, clipboard history, switch app, and
+  enabled catalog actions such as copy, paste, clipboard history, Task View, and
   slide navigation. Default Clipboard History is `Win+V` through shortcut-mode
-  thumb-middle hold.
+  thumb-middle hold. Default Task View opens with `Win+Tab` through
+  shortcut-mode thumb-index hold, navigates with left/right arrow keys from hand
+  movement, and confirms with Enter on release.
 
 Default cursor behavior:
 
@@ -92,10 +100,11 @@ Default cursor behavior:
 `ActionConfig.catalog` stores semantic IDs, labels, profiles, key chords,
 enabled state, and risky-action flags. The initial catalog covers high-value
 Windows, editing, browser, presentation, and media shortcuts. Safe actions such
-as copy, paste, Clipboard History (`clipboard.history` / `Win+V`), switch app,
-and slide navigation are enabled by default; higher impact actions such as lock
-workstation, close window, desktop switching, and tab close are present but
-disabled and/or risky by default.
+as copy, paste, Clipboard History (`clipboard.history` / `Win+V`), Task View
+(`system.task_view` / `Win+Tab`), and slide navigation are enabled by default.
+The old Alt+Tab switch action remains available but is not a default gesture.
+Higher impact actions such as lock workstation, close window, desktop switching,
+and tab close are present but disabled and/or risky by default.
 
 ## Failure Handling
 

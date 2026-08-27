@@ -47,11 +47,14 @@ Pass:
 - App starts with `AIRPILOT - DISARMED`; moving your hand does not move the
   pointer.
 - Preview orientation matches the actual camera view, not selfie mirroring.
-- Press `a`; overlay changes to `AIRPILOT - ACTIVE`.
+- Hold thumb-middle on the second hand until the overlay reports arming; overlay
+  changes to `AIRPILOT - ACTIVE`. Restart and also verify pressing `a` still
+  arms/disarms.
 - Press `h`; a separate gesture/action help window opens or closes without
-  blocking camera processing or clipping text. It should include philosophy,
-  core mouse gestures, controls, shortcut-mode mappings, available shortcut
-  actions, Clipboard History, and risky-action notes.
+  blocking camera processing or clipping text. It should read like a glanceable
+  dashboard with quick start, status cards, core mouse gestures, controls,
+  shortcut-mode mappings, available shortcut actions, Task View, Clipboard
+  History, and risky-action notes.
 - Hold thumb-index on the second hand; the same help window toggles only after a
   deliberate hold.
 - Move your hand right; the Windows pointer moves right. Move left/up/down; the
@@ -62,8 +65,12 @@ Pass:
 - While active and tracking a usable hand, Windows cursor feedback changes to a
   hand/pointer-style cursor where supported; it restores on hand loss, disarm,
   pause, quit, or runtime failure.
-- With five thumb-index pinch/releases, exactly five left clicks occur.
-- Holding thumb-index starts drag; pressing `p` or removing the hand releases it.
+- With five thumb-index pinch/releases, exactly five left clicks occur at the
+  intended target; pinch jitter should not drag the pointer off target while the
+  click candidate is held.
+- Holding thumb-index without moving should not start drag. Holding thumb-index
+  and then moving deliberately starts drag; pressing `p` or removing the hand
+  releases it.
 - With five thumb-middle pinch/releases, exactly five right clicks occur.
 - With five deliberate thumb-middle hold/releases, exactly five middle clicks
   occur.
@@ -104,17 +111,19 @@ First validate safe actions:
 - Enter shortcut mode and perform the default paste gesture; verify paste works.
 - Enter shortcut mode and hold the thumb-middle gesture; verify Windows
   Clipboard History opens. Close it manually after validation.
-- Enter shortcut mode and perform switch-app only when changing windows is safe.
+- Enter shortcut mode, hold thumb-index until Windows Task View opens, move the
+  held hand left/right to select adjacent windows, then release to open the
+  selected window. Close Task View with Esc if needed.
 - In a presentation or compatible viewer, enter shortcut mode and verify next
   slide and previous slide.
 - Verify the overlay briefly shows `ACTION: ...` when an action fires.
 
 ## Compact Feedback
 
-After the scroll/help/Clipboard History pass, report:
+After the live pass, report:
 
 ```text
-scroll_up=<ok|fail> scroll_down=<ok|fail> scroll_control=<bad|good|too_fast|too_slow> clipboard_history=<ok|fail> help_content=<ok|fail> help_readable=<ok|fail> feel=<short note>
+arm_gesture=<ok|fail> click_accuracy=<bad|good> drag=<ok|fail> help_glance=<bad|good> task_view_open=<ok|fail> task_view_left_right=<ok|fail> task_view_select=<ok|fail> scroll_up=<ok|fail> scroll_down=<ok|fail> scroll_control=<bad|good|too_fast|too_slow> clipboard_history=<ok|fail> feel=<short note>
 ```
 
 ## Edge Cases
