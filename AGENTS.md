@@ -67,9 +67,10 @@ powershell -ExecutionPolicy Bypass -File scripts/package_windows.ps1
 - Python project metadata and locked dependencies.
 - MediaPipe/OpenCV/PyAutoGUI Windows runtime.
 - Explicit gesture state machine with cooldowns, hysteresis, click hold
-  thresholds, drag state, scroll state, pause state, and tracking-loss handling.
+  thresholds, drag state, scroll state, optional gesture pause state, and
+  tracking-loss handling.
 - Cursor mapper with calibration, mirroring, smoothing, sensitivity, and
-- dead-zone behavior over Windows virtual-desktop coordinates.
+  dead-zone behavior over Windows virtual-desktop coordinates.
 - Config persistence with schema versioning.
 - Tests for gestures, mapping, tracking loss/recovery, config, and fake input.
 - Safe/armed gate, richer status overlay, headless diagnostics, camera backend
@@ -100,12 +101,18 @@ powershell -ExecutionPolicy Bypass -File scripts/package_windows.ps1
 - Initial shortcut/action catalog and two-hand shortcut mode are implemented with
   risky shortcuts disabled by default.
 - Middle click is available via a deliberate thumb-middle hold/release.
-- The preview can show compact gesture/action help with `H`.
+- The preview stays compact; full gesture/action help opens in a separate window
+  with `H` or a deliberate second-hand thumb-index hold.
+- Gesture pause is disabled by default to prevent accidental `PAUSED`; keyboard
+  `P` still pauses/resumes, and config can explicitly re-enable the gesture.
+- Pointer defaults now favor responsiveness with tighter camera bounds, higher
+  sensitivity, lighter smoothing, and a small dead zone.
 
 ## Known Issues
 
-- Manual validation is still required for the new direction, multi-monitor,
-  gesture help, middle-click, and shortcut action behavior.
+- Manual validation is still required for accidental pause prevention, keyboard
+  pause, pointer speed, the help window/key/gesture, compact preview, direction,
+  multi-monitor, middle-click, and shortcut action behavior.
 - Packaged executable is unsigned.
 - Camera unplug/replug recovery now retries reopening the same camera index, but
   recovery still depends on Windows presenting the device again on that index.
@@ -128,9 +135,10 @@ powershell -ExecutionPolicy Bypass -File scripts/package_windows.ps1
 
 ## Next Task
 
-Run the compact live validation checklist for direction, monitors, gesture help,
-scroll, middle click, and safe shortcut actions; then tune gesture defaults from
-observed behavior.
+Run the compact live validation checklist and collect:
+`pause_accidental=<yes|no> pause_intentional=<ok|fail>
+speed=<slow|good|too_fast> help_key=<ok|fail> help_gesture=<ok|fail>
+help_window=<ok|fail> preview=<ok|fail> feel=<short note>`.
 
 ## Decisions Not To Silently Reverse
 

@@ -24,7 +24,8 @@ hardware-tuning work should use short-lived focused feature branches off `main`.
 - OpenCV webcam capture and camera listing.
 - MediaPipe hand tracking adapter.
 - Gesture state machine with hold thresholds, hysteresis, cooldowns, drag
-  lifecycle, scroll mode, pause/resume, and tracking-loss handling.
+  lifecycle, scroll mode, optional gesture pause/resume, and tracking-loss
+  handling.
 - Cursor mapper with calibration bounds, mirroring, smoothing, sensitivity, and
   dead-zone logic.
 - PyAutoGUI mouse adapter plus fake controller for tests.
@@ -37,7 +38,7 @@ hardware-tuning work should use short-lived focused feature branches off `main`.
   fails, instead of crashing the runtime loop.
 - Default preview orientation is corrected away from selfie mirroring, cursor
   mapping matches that orientation, config schema v3 migrates legacy behavior,
-  and the overlay now shows prominent active/disarmed/paused/preview-only state.
+  and the overlay now shows compact active/disarmed/paused/preview-only state.
 - Up to two MediaPipe hands are tracked; the right hand is preferred as the
   control hand and a secondary hand is retained for future interactions.
 - `A` enables/disables mouse output unless the run is explicitly locked by
@@ -49,9 +50,14 @@ hardware-tuning work should use short-lived focused feature branches off `main`.
 - Win32 virtual-desktop geometry is used for cursor mapping, including negative
   origins for monitors left or above the primary display.
 - Middle click is available through deliberate thumb-middle hold/release.
-- A compact gesture/action help panel is available in the preview with `H`.
+- A separate gesture/action help window is available with `H` or a deliberate
+  second-hand thumb-index hold.
 - A configurable shortcut action catalog and two-hand shortcut mode are
   implemented; risky actions are disabled by default.
+- Cursor defaults use a tighter active camera region, higher sensitivity, lighter
+  smoothing, and a small dead zone for more responsive pointer movement.
+- Gesture pause is disabled by default to avoid accidental `PAUSED`; keyboard
+  `P` remains available and the gesture can be re-enabled in config.
 - Config persistence under `%APPDATA%\AirPilot\config.json`.
 - Synthetic tests for gestures, mapping, tracking loss/recovery, config, and
   fake mouse event application.
@@ -94,8 +100,9 @@ Last local automated validation:
 - `uv run --extra dev ruff format --check .`
 - `uv run --extra dev ruff check .`
 - `uv run --extra dev mypy src`
-- `uv run --extra dev python -m pytest`: 74 passed after physical-direction,
-  virtual desktop, gesture help, middle-click, and action-router changes.
+- `uv run --extra dev python -m pytest`: 84 passed after physical-direction,
+  virtual desktop, separate help window, accidental-pause prevention, faster
+  cursor defaults, middle-click, and action-router changes.
 - `uv run python -c "... MediaPipeHandTracker().draw(...)"` completed with
   `draw-ok` against the installed MediaPipe package.
 - `uv run --extra dev airpilot --camera 0` started without the prior preview
@@ -122,8 +129,9 @@ Last local automated validation:
 
 Manual live hand acquisition and real pointer gestures still must be run with a
 hand physically presented to the webcam for this follow-up. Required checks:
-direction, monitor crossing, gesture help, scroll, middle click, copy/paste,
-switch app, slide navigation, shortcut safety, and feel.
+accidental pause, keyboard pause, pointer speed/feel, help key, help gesture,
+help window lifecycle, compact preview, direction, monitor crossing, scroll,
+middle click, copy/paste, switch app, slide navigation, and shortcut safety.
 
 ## Known Issues
 
@@ -133,8 +141,8 @@ switch app, slide navigation, shortcut safety, and feel.
 - Safe cursor feedback uses transient Windows cursor APIs rather than permanent
   system cursor replacement; behavior over other applications needs manual
   validation.
-- Two-hand shortcut mode is implemented but not yet manually validated with two
-  physical hands.
+- Two-hand shortcut mode and the two-hand help gesture are implemented but not
+  yet manually validated with two physical hands.
 - MediaPipe emits a `NORM_RECT without IMAGE_DIMENSIONS` warning during live
   hand tracking; it did not reproduce as a crash and is not yet proven to cause
   incorrect gesture behavior in this milestone.
@@ -145,9 +153,11 @@ switch app, slide navigation, shortcut safety, and feel.
 
 ## Next
 
-Open a PR for `feature/windows-actions-monitors`, run source/package validation
-and CI, then request compact human validation for the new direction,
-multi-monitor, help, middle-click, and shortcut action behavior.
+Update PR #7 from `feature/windows-actions-monitors`, run source/package
+validation and CI, then request compact human validation with:
+`pause_accidental=<yes|no> pause_intentional=<ok|fail>
+speed=<slow|good|too_fast> help_key=<ok|fail> help_gesture=<ok|fail>
+help_window=<ok|fail> preview=<ok|fail> feel=<short note>`.
 
 ## Decisions Not To Reverse Silently
 

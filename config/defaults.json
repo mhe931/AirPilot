@@ -334,6 +334,13 @@
         "profile": "windows",
         "risky": false
       },
+      "ui.toggle_help": {
+        "enabled": true,
+        "keys": [],
+        "label": "Toggle help",
+        "profile": "ui",
+        "risky": false
+      },
       "window.close": {
         "enabled": false,
         "keys": [
@@ -408,6 +415,7 @@
     },
     "enabled": true,
     "gesture_actions": {
+      "help_secondary_index_hold": "ui.toggle_help",
       "shortcut_index_hold": "window.switch",
       "shortcut_index_release": "clipboard.copy",
       "shortcut_middle_release": "clipboard.paste",
@@ -418,24 +426,27 @@
     "shortcut_mode_gesture": "secondary_thumb_pinky_hold"
   },
   "cursor": {
-    "camera_max_x": 0.92,
-    "camera_max_y": 0.88,
-    "camera_min_x": 0.08,
-    "camera_min_y": 0.08,
-    "dead_zone_px": 5,
+    "camera_max_x": 0.84,
+    "camera_max_y": 0.82,
+    "camera_min_x": 0.16,
+    "camera_min_y": 0.12,
+    "dead_zone_px": 3,
     "mirror_x": true,
     "screen_height": 1080,
     "screen_left": 0,
     "screen_top": 0,
     "screen_width": 1920,
-    "sensitivity": 1.0,
-    "smoothing_alpha": 0.28
+    "sensitivity": 1.35,
+    "smoothing_alpha": 0.42
   },
   "gestures": {
     "action_cooldown_ms": 700,
     "click_cooldown_ms": 350,
     "drag_hold_ms": 450,
+    "help_gesture_enabled": true,
+    "help_gesture_hold_ms": 900,
     "min_click_hold_ms": 80,
+    "pause_gesture_enabled": false,
     "pause_hold_ms": 850,
     "pause_pinch_release_threshold": 0.095,
     "pause_pinch_threshold": 0.07,
@@ -461,10 +472,10 @@
     "enable_real_mouse": true,
     "flip_camera_x": false,
     "max_camera_index": 4,
-    "show_gesture_help": true,
+    "show_gesture_help": false,
     "start_armed": false,
     "tracker_detection_confidence": 0.55,
     "tracker_tracking_confidence": 0.55
   },
-  "schema_version": 4
+  "schema_version": 5
 }

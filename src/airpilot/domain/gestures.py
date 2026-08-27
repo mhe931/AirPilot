@@ -285,6 +285,10 @@ class GestureEngine:
         return events
 
     def _update_pause(self, hand: HandLandmarks, timestamp_ms: int) -> tuple[bool, bool, bool]:
+        if not self.config.pause_gesture_enabled:
+            self._pause = _PinchState()
+            return False, False, False
+
         pause_distance = _distance(hand, THUMB_TIP, PINKY_TIP)
         pause_now = _hysteresis(
             self._pause.active,

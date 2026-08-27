@@ -347,7 +347,7 @@ def test_run_blocks_pointer_until_armed_then_restores_cursor_feedback(
     config.cursor.smoothing_alpha = 1.0
     assert app.run(config, show_preview=True) == 0
 
-    assert mouse.actions == ["move:85,15"]
+    assert mouse.actions == ["move:93,11"]
     assert feedback.states == [False, True]
     assert feedback.restored is True
 

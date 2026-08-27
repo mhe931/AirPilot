@@ -13,7 +13,8 @@ Implemented:
 - OpenCV webcam capture with camera selection.
 - MediaPipe hand tracking.
 - Platform-independent gesture state machine with debounce, hysteresis,
-  cooldowns, drag lifecycle, scrolling, pause/resume, and tracking-loss safety.
+  cooldowns, drag lifecycle, scrolling, optional gesture pause/resume, and
+  tracking-loss safety.
 - Safe-by-default arming gate so real mouse control does not start until the
   user presses `a` or passes `--armed`.
 - Smooth cursor mapping with calibration bounds, sensitivity, smoothing, and
@@ -22,7 +23,7 @@ Implemented:
   moving your hand right moves the Windows pointer right.
 - Two-hand tracking model with a right-hand-preferred control hand and secondary
   hand reserved for future interactions.
-- Prominent preview banner for DISARMED, ACTIVE, PAUSED, and preview-only modes.
+- Compact preview banner for DISARMED, ACTIVE, PAUSED, and preview-only modes.
 - Bounded camera reopen attempts after sustained frame-read failures.
 - Transient Windows cursor feedback while active control-hand tracking is
   available, restored on shutdown.
@@ -30,6 +31,8 @@ Implemented:
 - Win32 virtual-desktop geometry and pointer movement so multi-monitor layouts,
   including monitors left or above the primary display, can be addressed.
 - Configurable shortcut action catalog with safe default two-hand shortcut mode.
+- Separate gesture/action help window, opened by `h` or a deliberate two-hand
+  help gesture.
 - Config persistence under `%APPDATA%\AirPilot\config.json`.
 - Synthetic landmark tests that do not require a webcam or desktop automation.
 - Preview landmark drawing is compatible with the pinned MediaPipe package and
@@ -67,9 +70,9 @@ uv run --extra dev airpilot --camera 0
 ```
 
 Real mouse mode starts in safe mode. Press `a` in the preview window to enable
-or disable pointer control. The preview shows a prominent `AIRPILOT - DISARMED`
-or `AIRPILOT - ACTIVE` banner so the current state is obvious. Use `--armed` only
-when you intentionally want immediate control.
+or disable pointer control. The preview shows an `AIRPILOT - DISARMED` or
+`AIRPILOT - ACTIVE` banner so the current state is obvious without covering the
+camera view. Use `--armed` only when you intentionally want immediate control.
 
 Run safely without moving the mouse:
 
@@ -91,7 +94,7 @@ Controls:
 - `q` or `Esc`: stop AirPilot while the preview window is focused.
 - `p`: pause/resume while the preview window is focused.
 - `a`: arm/disarm real mouse output while the preview window is focused.
-- `h`: show/hide the compact gesture and action help in the preview.
+- `h`: show/hide the separate gesture and action help window.
 - Move the real pointer to a screen corner to trigger PyAutoGUI's failsafe.
 
 If your webcam feed is already non-mirrored at the driver level, you can change
@@ -104,11 +107,20 @@ Default gestures:
 - Thumb + middle pinch, then release: right click.
 - Thumb + middle pinch and hold, then release: middle click.
 - Thumb + ring pinch while moving vertically: scroll.
-- Thumb + pinky hold: pause/resume.
+- Pause gesture is disabled by default to prevent accidental `PAUSED` state;
+  keyboard `p` remains available. If enabled in config, thumb + pinky hold
+  pauses/resumes.
+- Help window: hold thumb + index on the second hand.
 - Shortcut mode: hold thumb + pinky on the second hand, then use configured
   control-hand shortcut gestures. Defaults include copy, paste, switch app, next
   slide, and previous slide. Risky actions such as lock workstation and close
   window are disabled by default.
+
+Pointer defaults intentionally favor responsiveness: a smaller active camera
+region, higher sensitivity, lighter smoothing, and a small dead zone. Tune
+`cursor.camera_min_*`, `cursor.camera_max_*`, `cursor.sensitivity`,
+`cursor.smoothing_alpha`, and `cursor.dead_zone_px` in
+`%APPDATA%\AirPilot\config.json` if your setup feels too slow or too fast.
 
 ## Validate
 

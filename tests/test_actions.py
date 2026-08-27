@@ -15,8 +15,9 @@ from airpilot.input import RecordingMouseController
 def test_action_help_lines_are_generated_from_config() -> None:
     lines = action_help_lines(ActionConfig())
 
+    assert "Thumb + index pinch/release - Left click" in lines
     assert any("Copy" in line for line in lines)
-    assert any("Paste" in line for line in lines)
+    assert any("Risky actions disabled" in line for line in lines)
 
 
 def test_validate_action_config_rejects_unknown_binding() -> None:
@@ -107,6 +108,136 @@ def test_action_router_requires_two_hand_shortcut_mode_before_shortcut() -> None
     )
     assert released.action_id == "clipboard.copy"
     assert released.action_label == "Copy"
+
+
+def test_action_router_toggles_help_with_secondary_index_hold() -> None:
+    router = ActionRouter(ActionConfig(), GestureConfig(help_gesture_hold_ms=500))
+    control = _hand()
+    secondary = _hand(index=(0.51, 0.50))
+
+    pending = router.process(
+        TrackingFrame(
+            timestamp_ms=0,
+            width=640,
+            height=480,
+            hand=control,
+            hands=(control, secondary),
+        ),
+        GestureEvents(),
+    )
+    assert pending.active_gesture == "help_pending"
+    assert pending.action_id is None
+
+    toggled = router.process(
+        TrackingFrame(
+            timestamp_ms=600,
+            width=640,
+            height=480,
+            hand=control,
+            hands=(control, secondary),
+        ),
+        GestureEvents(),
+    )
+    assert toggled.action_id == "ui.toggle_help"
+    assert toggled.action_label == "Toggle help"
+
+    still_held = router.process(
+        TrackingFrame(
+            timestamp_ms=1300,
+            width=640,
+            height=480,
+            hand=control,
+            hands=(control, secondary),
+        ),
+        GestureEvents(left_click=True, scroll=5),
+    )
+    assert still_held.action_id is None
+    assert not still_held.left_click
+    assert still_held.scroll == 0
+
+
+def test_action_router_help_gesture_suppresses_mouse_events() -> None:
+    router = ActionRouter(ActionConfig(), GestureConfig(help_gesture_hold_ms=0))
+    control = _hand()
+    secondary = _hand(index=(0.51, 0.50))
+
+    router.process(
+        TrackingFrame(
+            timestamp_ms=0,
+            width=640,
+            height=480,
+            hand=control,
+            hands=(control, secondary),
+        ),
+        GestureEvents(),
+    )
+    events = router.process(
+        TrackingFrame(
+            timestamp_ms=1,
+            width=640,
+            height=480,
+            hand=control,
+            hands=(control, secondary),
+        ),
+        GestureEvents(left_click=True, right_click=True, middle_click=True, scroll=3),
+    )
+
+    assert events.action_id == "ui.toggle_help"
+    assert not events.shortcut_mode
+    assert not events.left_click
+    assert not events.right_click
+    assert not events.middle_click
+    assert events.scroll == 0
+
+
+def test_action_router_help_gesture_releases_active_drag() -> None:
+    router = ActionRouter(ActionConfig(), GestureConfig(help_gesture_hold_ms=0))
+    control = _hand()
+    secondary = _hand(index=(0.51, 0.50))
+
+    router.process(
+        TrackingFrame(
+            timestamp_ms=0,
+            width=640,
+            height=480,
+            hand=control,
+            hands=(control, secondary),
+        ),
+        GestureEvents(),
+    )
+    events = router.process(
+        TrackingFrame(
+            timestamp_ms=1,
+            width=640,
+            height=480,
+            hand=control,
+            hands=(control, secondary),
+        ),
+        GestureEvents(active_gesture="dragging", status="dragging"),
+    )
+
+    assert events.action_id == "ui.toggle_help"
+    assert events.drag_end
+
+
+def test_action_router_help_gesture_does_not_overlap_shortcut_mode() -> None:
+    router = ActionRouter(ActionConfig(), GestureConfig(help_gesture_hold_ms=0))
+    control = _hand()
+    secondary = _hand(index=(0.51, 0.50), pinky=(0.51, 0.50))
+
+    events = router.process(
+        TrackingFrame(
+            timestamp_ms=1000,
+            width=640,
+            height=480,
+            hand=control,
+            hands=(control, secondary),
+        ),
+        GestureEvents(),
+    )
+
+    assert events.action_id is None
+    assert events.shortcut_mode
 
 
 def test_action_router_suppresses_mouse_events_during_shortcut_pending() -> None:

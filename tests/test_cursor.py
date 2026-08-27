@@ -78,6 +78,7 @@ def test_cursor_smoothing_and_dead_zone() -> None:
             camera_min_y=0.0,
             camera_max_y=1.0,
             smoothing_alpha=0.5,
+            sensitivity=1.0,
             dead_zone_px=2,
             mirror_x=False,
         )
@@ -90,6 +91,43 @@ def test_cursor_smoothing_and_dead_zone() -> None:
 
     dead_zone_move = mapper.map(Landmark(x=0.51, y=0.51))
     assert dead_zone_move == first_move
+
+
+def test_higher_sensitivity_produces_larger_followup_movement() -> None:
+    slow = CursorMapper(
+        CursorConfig(
+            screen_width=101,
+            screen_height=101,
+            camera_min_x=0.0,
+            camera_max_x=1.0,
+            camera_min_y=0.0,
+            camera_max_y=1.0,
+            smoothing_alpha=0.5,
+            sensitivity=1.0,
+            dead_zone_px=0,
+            mirror_x=False,
+        )
+    )
+    fast = CursorMapper(
+        CursorConfig(
+            screen_width=101,
+            screen_height=101,
+            camera_min_x=0.0,
+            camera_max_x=1.0,
+            camera_min_y=0.0,
+            camera_max_y=1.0,
+            smoothing_alpha=0.5,
+            sensitivity=1.5,
+            dead_zone_px=0,
+            mirror_x=False,
+        )
+    )
+
+    assert slow.map(Landmark(x=0.0, y=0.0)).x == 0
+    assert fast.map(Landmark(x=0.0, y=0.0)).x == 0
+
+    assert slow.map(Landmark(x=1.0, y=0.0)).x == 50
+    assert fast.map(Landmark(x=1.0, y=0.0)).x == 75
 
 
 def test_invalid_calibration_uses_center() -> None:

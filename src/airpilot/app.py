@@ -10,6 +10,7 @@ from time import perf_counter
 from typing import Protocol
 
 import cv2
+import numpy as np
 import pyautogui
 from cv2.typing import MatLike
 
@@ -192,6 +193,7 @@ def run(
         config.cursor.screen_height = desktop.height
         engine = GestureEngine(config.gestures, CursorMapper(config.cursor))
         action_router = ActionRouter(config.actions, config.gestures)
+        help_window = HelpWindow(visible=config.runtime.show_gesture_help)
         mouse = PyAutoGuiMouseController(
             emergency_corner_failsafe=config.runtime.emergency_corner_failsafe,
         )
@@ -208,10 +210,16 @@ def run(
             frame = tracker.track(image, camera_frame.timestamp_ms)
             events = engine.process(frame)
             events = action_router.process(frame, events)
+            if events.action_id == "ui.toggle_help":
+                operator_notice = _dispatch_ui_action(events.action_id, help_window)
             mouse_output_enabled = config.runtime.enable_real_mouse and not mouse_output_locked
             if mouse_output_enabled:
                 safety.apply(mouse, events)
-                if safety.armed and events.action_id is not None:
+                if (
+                    safety.armed
+                    and events.action_id is not None
+                    and not events.action_id.startswith("ui.")
+                ):
                     action_label = dispatch_action(config.actions, mouse, events.action_id)
                     if action_label is not None:
                         operator_notice = f"ACTION: {action_label}"
@@ -253,10 +261,12 @@ def run(
                     engine=engine,
                     safety=safety,
                     mouse=mouse,
+                    help_window=help_window,
                     mouse_output_locked=mouse_output_locked,
                 )
                 if should_exit:
                     break
+                help_window.update(config)
             if diagnose_seconds is not None and stats.elapsed_seconds >= diagnose_seconds:
                 summary = stats.summary(camera_backend=camera.backend_name)
                 summary["camera_reconnects"] = camera.reconnect_count
@@ -279,6 +289,8 @@ def run(
             safety.disarm(mouse)
         if cursor_feedback is not None:
             cursor_feedback.restore()
+        if "help_window" in locals():
+            help_window.close()
         cv2.destroyAllWindows()
     return 0
 
@@ -316,8 +328,6 @@ def status_lines(
         ),
         controls,
     ]
-    if config.runtime.show_gesture_help:
-        lines.extend(action_help_lines(config.actions))
     if events.action_label is not None:
         lines.append(f"action {events.action_label}")
     if drawing_error is not None:
@@ -414,6 +424,7 @@ def _handle_keypress(
     engine: PauseController,
     safety: MouseSafetyGate,
     mouse: MouseController,
+    help_window: HelpWindow | None = None,
     mouse_output_locked: bool = False,
 ) -> tuple[bool, str | None]:
     command = _normalized_key(key)
@@ -425,11 +436,7 @@ def _handle_keypress(
             safety.apply(mouse, pause_events)
         return False, "Paused" if pause_events.paused else "Resumed"
     if command == "h":
-        config.runtime.show_gesture_help = not config.runtime.show_gesture_help
-        return (
-            False,
-            "Gesture help shown" if config.runtime.show_gesture_help else "Gesture help hidden",
-        )
+        return False, _dispatch_ui_action("ui.toggle_help", help_window)
     if command == "a":
         if mouse_output_locked:
             return False, "Mouse output disabled for diagnostics/--no-mouse"
@@ -443,6 +450,13 @@ def _handle_keypress(
     if command == "quit":
         return True, "Quit requested"
     return False, None
+
+
+def _dispatch_ui_action(action_id: str, help_window: HelpWindow | None) -> str | None:
+    if action_id != "ui.toggle_help" or help_window is None:
+        return None
+    visible = help_window.toggle()
+    return "Help opened" if visible else "Help closed"
 
 
 def _headline_text(
@@ -474,6 +488,86 @@ def _controls_text(config: AppConfig, *, mouse_output_locked: bool = False) -> s
     if mouse_output_locked:
         return "Controls: P pause | H help | Q quit | Click preview for keys"
     return "Controls: A arm | P pause | H help | Q quit | Click preview for keys"
+
+
+@dataclass(slots=True)
+class HelpWindow:
+    visible: bool = False
+    title: str = "AirPilot Help"
+    _created: bool = False
+
+    def toggle(self) -> bool:
+        self.visible = not self.visible
+        if not self.visible:
+            self._destroy()
+        else:
+            self._created = False
+        return self.visible
+
+    def update(self, config: AppConfig) -> None:
+        if not self.visible:
+            return
+        if self._created and not self._window_is_open():
+            self.visible = False
+            self._created = False
+            return
+        cv2.imshow(self.title, _help_image(_help_lines(config)))
+        self._created = True
+
+    def close(self) -> None:
+        if self.visible or self._created:
+            self._destroy()
+            self.visible = False
+            self._created = False
+
+    def _window_is_open(self) -> bool:
+        try:
+            visible = cv2.getWindowProperty(self.title, cv2.WND_PROP_VISIBLE)
+        except cv2.error:
+            return False
+        return visible >= 1
+
+    def _destroy(self) -> None:
+        try:
+            cv2.destroyWindow(self.title)
+        except cv2.error:
+            return
+        self._created = False
+
+
+def _help_lines(config: AppConfig) -> list[str]:
+    return ["AirPilot Help", ""] + action_help_lines(config.actions, max_actions=12)
+
+
+def _help_image(lines: Sequence[str]) -> MatLike:
+    width = 760
+    line_height = 28
+    height = max(260, min(900, 36 + line_height * len(lines)))
+    image = np.full((height, width, 3), 32, dtype=np.uint8)
+    y = 36
+    for index, line in enumerate(lines):
+        scale = 0.75 if index == 0 else 0.55
+        color = (255, 255, 255) if line else (180, 180, 180)
+        if (
+            line in {"Mouse", "Control"}
+            or line.startswith("Shortcut mode")
+            or line.startswith("Risky")
+        ):
+            color = (120, 220, 255)
+        cv2.putText(
+            image,
+            _fit_text(line, width - 32, scale=scale),
+            (16, y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            scale,
+            color,
+            2 if index == 0 else 1,
+            cv2.LINE_AA,
+        )
+        y += line_height
+        if y > height - 12:
+            break
+    return image
 
 
 @dataclass(frozen=True, slots=True)

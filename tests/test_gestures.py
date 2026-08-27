@@ -38,6 +38,12 @@ def engine() -> GestureEngine:
     )
 
 
+def pause_engine() -> GestureEngine:
+    sut = engine()
+    sut.config.pause_gesture_enabled = True
+    return sut
+
+
 def test_left_click_requires_hold_release_and_cooldown() -> None:
     sut = engine()
     assert not sut.process(frame(0)).left_click
@@ -77,7 +83,7 @@ def test_drag_lifecycle_consumes_click() -> None:
 
 
 def test_pause_during_drag_releases_drag() -> None:
-    sut = engine()
+    sut = pause_engine()
 
     sut.process(frame(0, index=(0.51, 0.50)))
     assert sut.process(frame(500, index=(0.51, 0.50))).drag_start
@@ -148,7 +154,7 @@ def test_scrolling_suppresses_pointer_move() -> None:
 
 
 def test_pause_resume_blocks_actions() -> None:
-    sut = engine()
+    sut = pause_engine()
 
     assert not sut.process(frame(0, pinky=(0.51, 0.50))).paused_changed
     assert sut.process(frame(100, pinky=(0.51, 0.50))).active_gesture == "pause_hold"
@@ -166,6 +172,25 @@ def test_pause_resume_blocks_actions() -> None:
     resumed = sut.process(frame(2200, pinky=(0.51, 0.50)))
     assert resumed.paused_changed
     assert not resumed.paused
+
+
+def test_default_single_hand_pinky_pinch_does_not_pause() -> None:
+    sut = engine()
+
+    assert not sut.process(frame(0, pinky=(0.51, 0.50))).paused_changed
+    held = sut.process(frame(1200, pinky=(0.51, 0.50)))
+
+    assert not held.paused
+    assert held.active_gesture != "paused"
+
+
+def test_click_and_scroll_gestures_do_not_pause_by_default() -> None:
+    sut = engine()
+
+    assert not sut.process(frame(0, index=(0.51, 0.50))).paused
+    assert not sut.process(frame(120)).paused
+    assert not sut.process(frame(200, ring=(0.51, 0.50))).paused
+    assert not sut.process(frame(300, ring=(0.51, 0.56))).paused
 
 
 def test_tracking_loss_and_recovery() -> None:

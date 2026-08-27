@@ -27,8 +27,8 @@ uv run --extra dev airpilot --camera 0 --no-mouse
 Pass:
 
 - Preview window opens.
-- Overlay shows a prominent preview-only/disarmed/active/paused state banner, tracking
-  details, controls, and the control region rectangle.
+- Overlay shows a compact preview-only/disarmed/active/paused state banner,
+  tracking details, controls, and the control region rectangle.
 - Hand landmarks draw over the hand within 3 seconds when a hand is presented.
 - If preview landmark rendering fails, the app should stay running and show
   `preview landmarks disabled` rather than crashing.
@@ -47,12 +47,16 @@ Pass:
 - App starts with `AIRPILOT - DISARMED`; moving your hand does not move the
   pointer.
 - Preview orientation matches the actual camera view, not selfie mirroring.
-- Press `a`; overlay changes prominently to `AIRPILOT - ACTIVE`.
-- Press `h`; the compact gesture/action help appears or disappears without text
-  clipping.
+- Press `a`; overlay changes to `AIRPILOT - ACTIVE`.
+- Press `h`; a separate gesture/action help window opens or closes without
+  blocking camera processing or clipping text.
+- Hold thumb-index on the second hand; the same help window toggles only after a
+  deliberate hold.
 - Move your hand right; the Windows pointer moves right. Move left/up/down; the
   pointer follows the same physical direction.
 - Cursor reaches all four quadrants without leaving the control region.
+- Pointer response feels usable with the faster defaults and is not obviously
+  slow or jumpy.
 - While active and tracking a usable hand, Windows cursor feedback changes to a
   hand/pointer-style cursor where supported; it restores on hand loss, disarm,
   pause, quit, or runtime failure.
@@ -62,7 +66,9 @@ Pass:
 - With five deliberate thumb-middle hold/releases, exactly five middle clicks
   occur.
 - Thumb-ring vertical movement scrolls only while the overlay says `scrolling`.
-- Thumb-pinky hold pauses and resumes without firing clicks.
+- Thumb-pinky hold does not pause by default. Pressing `p` pauses/resumes without
+  firing clicks. If gesture pause is explicitly enabled in config, thumb-pinky
+  hold pauses and resumes without firing clicks.
 - Ambiguous multi-pinch shapes show conflict/cancel behavior, not combined
   clicks.
 - Moving the pointer to a screen corner stops through PyAutoGUI failsafe.
@@ -95,6 +101,14 @@ First validate safe actions:
 - In a presentation or compatible viewer, enter shortcut mode and verify next
   slide and previous slide.
 - Verify the overlay briefly shows `ACTION: ...` when an action fires.
+
+## Compact Feedback
+
+After the real-mouse and help-window pass, report:
+
+```text
+pause_accidental=<yes|no> pause_intentional=<ok|fail> speed=<slow|good|too_fast> help_key=<ok|fail> help_gesture=<ok|fail> help_window=<ok|fail> preview=<ok|fail> feel=<short note>
+```
 
 ## Edge Cases
 

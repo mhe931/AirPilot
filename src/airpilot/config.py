@@ -6,7 +6,17 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-CURRENT_SCHEMA_VERSION = 4
+CURRENT_SCHEMA_VERSION = 5
+
+_V4_CURSOR_DEFAULTS = {
+    "camera_min_x": 0.08,
+    "camera_max_x": 0.92,
+    "camera_min_y": 0.08,
+    "camera_max_y": 0.88,
+    "sensitivity": 1.0,
+    "smoothing_alpha": 0.28,
+    "dead_zone_px": 5,
+}
 
 
 @dataclass(slots=True)
@@ -24,6 +34,9 @@ class GestureConfig:
     scroll_units_per_step: int = 3
     shortcut_mode_hold_ms: int = 650
     shortcut_action_hold_ms: int = 650
+    help_gesture_hold_ms: int = 900
+    help_gesture_enabled: bool = True
+    pause_gesture_enabled: bool = False
     action_cooldown_ms: int = 700
     click_cooldown_ms: int = 350
     drag_hold_ms: int = 450
@@ -37,13 +50,13 @@ class CursorConfig:
     screen_top: int = 0
     screen_width: int = 1920
     screen_height: int = 1080
-    camera_min_x: float = 0.08
-    camera_max_x: float = 0.92
-    camera_min_y: float = 0.08
-    camera_max_y: float = 0.88
-    sensitivity: float = 1.0
-    smoothing_alpha: float = 0.28
-    dead_zone_px: int = 5
+    camera_min_x: float = 0.16
+    camera_max_x: float = 0.84
+    camera_min_y: float = 0.12
+    camera_max_y: float = 0.82
+    sensitivity: float = 1.35
+    smoothing_alpha: float = 0.42
+    dead_zone_px: int = 3
     mirror_x: bool = True
 
 
@@ -58,6 +71,7 @@ class ShortcutConfig:
 
 def _default_shortcut_catalog() -> dict[str, ShortcutConfig]:
     return {
+        "ui.toggle_help": ShortcutConfig("Toggle help", (), "ui"),
         "clipboard.copy": ShortcutConfig("Copy", ("ctrl", "c"), "editing"),
         "clipboard.paste": ShortcutConfig("Paste", ("ctrl", "v"), "editing"),
         "clipboard.cut": ShortcutConfig("Cut", ("ctrl", "x"), "editing", enabled=False),
@@ -152,6 +166,7 @@ def _default_shortcut_catalog() -> dict[str, ShortcutConfig]:
 
 def _default_gesture_actions() -> dict[str, str]:
     return {
+        "help_secondary_index_hold": "ui.toggle_help",
         "shortcut_index_release": "clipboard.copy",
         "shortcut_index_hold": "window.switch",
         "shortcut_middle_release": "clipboard.paste",
@@ -178,7 +193,7 @@ class RuntimeConfig:
     camera_reconnect_delay_ms: int = 500
     flip_camera_x: bool = False
     draw_landmarks: bool = True
-    show_gesture_help: bool = True
+    show_gesture_help: bool = False
     enable_real_mouse: bool = True
     start_armed: bool = False
     emergency_corner_failsafe: bool = True
@@ -240,6 +255,8 @@ def _config_from_dict(raw: dict[str, Any]) -> AppConfig:
         return _migrate_v2_config(raw)
     if version == 3:
         return _migrate_v3_config(raw)
+    if version == 4:
+        return _migrate_v4_config(raw)
     if version != CURRENT_SCHEMA_VERSION:
         raise ValueError(f"Unsupported AirPilot config schema_version {version!r}")
     return AppConfig(
@@ -314,6 +331,9 @@ def _gestures_from_section(raw: dict[str, Any]) -> GestureConfig:
         "scroll_units_per_step": defaults.scroll_units_per_step,
         "shortcut_mode_hold_ms": defaults.shortcut_mode_hold_ms,
         "shortcut_action_hold_ms": defaults.shortcut_action_hold_ms,
+        "help_gesture_hold_ms": defaults.help_gesture_hold_ms,
+        "help_gesture_enabled": defaults.help_gesture_enabled,
+        "pause_gesture_enabled": defaults.pause_gesture_enabled,
         "action_cooldown_ms": defaults.action_cooldown_ms,
         "click_cooldown_ms": defaults.click_cooldown_ms,
         "drag_hold_ms": defaults.drag_hold_ms,
@@ -324,13 +344,37 @@ def _gestures_from_section(raw: dict[str, Any]) -> GestureConfig:
     return GestureConfig(**section)
 
 
+def _migrate_v4_config(raw: dict[str, Any]) -> AppConfig:
+    runtime_section = dict(_section(raw, "runtime"))
+    runtime_section["show_gesture_help"] = False
+    return AppConfig(
+        schema_version=CURRENT_SCHEMA_VERSION,
+        gestures=_gestures_from_section(_section(raw, "gestures")),
+        cursor=CursorConfig(**_migrated_v5_cursor(_section(raw, "cursor"))),
+        actions=_actions_from_section(_section(raw, "actions")),
+        runtime=RuntimeConfig(**runtime_section),
+    )
+
+
+def _migrated_v5_cursor(raw: dict[str, Any]) -> dict[str, Any]:
+    cursor_section = dict(raw)
+    defaults = CursorConfig()
+    for field_name, old_value in _V4_CURSOR_DEFAULTS.items():
+        if cursor_section.get(field_name) == old_value:
+            cursor_section[field_name] = getattr(defaults, field_name)
+    return cursor_section
+
+
 def _actions_from_section(raw: dict[str, Any]) -> ActionConfig:
     defaults = ActionConfig()
-    catalog_raw = raw.get("catalog", defaults.catalog)
+    catalog_raw = raw.get("catalog", {})
     if not isinstance(catalog_raw, dict):
         raise ValueError("AirPilot config action catalog must be an object")
-    catalog: dict[str, ShortcutConfig] = {}
+    catalog: dict[str, ShortcutConfig] = dict(defaults.catalog)
     for action_id, value in catalog_raw.items():
+        if isinstance(value, ShortcutConfig):
+            catalog[str(action_id)] = value
+            continue
         if not isinstance(value, dict):
             raise ValueError(f"AirPilot action {action_id!r} must be an object")
         catalog[str(action_id)] = ShortcutConfig(
@@ -340,17 +384,19 @@ def _actions_from_section(raw: dict[str, Any]) -> ActionConfig:
             enabled=bool(value.get("enabled", True)),
             risky=bool(value.get("risky", False)),
         )
-    gesture_actions_raw = raw.get("gesture_actions", defaults.gesture_actions)
+    gesture_actions_raw = raw.get("gesture_actions", {})
     if not isinstance(gesture_actions_raw, dict):
         raise ValueError("AirPilot gesture_actions must be an object")
+    gesture_actions = dict(defaults.gesture_actions)
+    gesture_actions.update(
+        {str(gesture): str(action_id) for gesture, action_id in gesture_actions_raw.items()}
+    )
     return ActionConfig(
         enabled=bool(raw.get("enabled", defaults.enabled)),
         risky_actions_enabled=bool(
             raw.get("risky_actions_enabled", defaults.risky_actions_enabled)
         ),
         shortcut_mode_gesture=str(raw.get("shortcut_mode_gesture", defaults.shortcut_mode_gesture)),
-        gesture_actions={
-            str(gesture): str(action_id) for gesture, action_id in gesture_actions_raw.items()
-        },
+        gesture_actions=gesture_actions,
         catalog=catalog,
     )

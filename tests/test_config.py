@@ -16,7 +16,7 @@ def test_config_round_trip(tmp_path: Path) -> None:
     save_config(config, path)
     loaded = load_config(path)
 
-    assert loaded.schema_version == 4
+    assert loaded.schema_version == 5
     assert loaded.cursor.sensitivity == 1.4
     assert loaded.runtime.camera_index == 2
 
@@ -51,7 +51,7 @@ def test_v1_config_migrates_legacy_mirrored_cursor_default(tmp_path: Path) -> No
 
     loaded = load_config(path)
 
-    assert loaded.schema_version == 4
+    assert loaded.schema_version == 5
     assert loaded.cursor.mirror_x is True
     assert loaded.cursor.sensitivity == 1.2
     assert loaded.runtime.camera_index == 1
@@ -73,7 +73,7 @@ def test_v1_config_preserves_equivalent_horizontal_behavior_when_unmirrored(
 
     loaded = load_config(path)
 
-    assert loaded.schema_version == 4
+    assert loaded.schema_version == 5
     assert loaded.runtime.flip_camera_x is False
     assert loaded.cursor.mirror_x is True
 
@@ -93,9 +93,101 @@ def test_v2_config_migrates_to_actual_camera_orientation(tmp_path: Path) -> None
 
     loaded = load_config(path)
 
-    assert loaded.schema_version == 4
+    assert loaded.schema_version == 5
     assert loaded.runtime.flip_camera_x is False
     assert loaded.cursor.mirror_x is True
+
+
+def test_v4_config_hides_help_overlay_after_migration(tmp_path: Path) -> None:
+    path = tmp_path / "config.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 4,
+                "runtime": {"show_gesture_help": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_config(path)
+
+    assert loaded.schema_version == 5
+    assert loaded.runtime.show_gesture_help is False
+    assert loaded.gestures.pause_gesture_enabled is False
+    assert loaded.gestures.help_gesture_enabled is True
+    assert loaded.actions.gesture_actions["help_secondary_index_hold"] == "ui.toggle_help"
+    assert "ui.toggle_help" in loaded.actions.catalog
+
+
+def test_v4_config_updates_untouched_cursor_defaults_for_responsiveness(tmp_path: Path) -> None:
+    path = tmp_path / "config.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 4,
+                "cursor": {
+                    "screen_left": 0,
+                    "screen_top": 0,
+                    "screen_width": 1920,
+                    "screen_height": 1080,
+                    "camera_min_x": 0.08,
+                    "camera_max_x": 0.92,
+                    "camera_min_y": 0.08,
+                    "camera_max_y": 0.88,
+                    "sensitivity": 1.0,
+                    "smoothing_alpha": 0.28,
+                    "dead_zone_px": 5,
+                    "mirror_x": True,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_config(path)
+
+    assert loaded.schema_version == 5
+    assert loaded.cursor.camera_min_x == 0.16
+    assert loaded.cursor.camera_max_x == 0.84
+    assert loaded.cursor.camera_min_y == 0.12
+    assert loaded.cursor.camera_max_y == 0.82
+    assert loaded.cursor.sensitivity == 1.35
+    assert loaded.cursor.smoothing_alpha == 0.42
+    assert loaded.cursor.dead_zone_px == 3
+
+
+def test_v4_config_preserves_custom_cursor_tuning(tmp_path: Path) -> None:
+    path = tmp_path / "config.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 4,
+                "cursor": {
+                    "camera_min_x": 0.10,
+                    "camera_max_x": 0.90,
+                    "camera_min_y": 0.11,
+                    "camera_max_y": 0.91,
+                    "sensitivity": 1.2,
+                    "smoothing_alpha": 0.5,
+                    "dead_zone_px": 7,
+                    "mirror_x": True,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_config(path)
+
+    assert loaded.schema_version == 5
+    assert loaded.cursor.camera_min_x == 0.10
+    assert loaded.cursor.camera_max_x == 0.90
+    assert loaded.cursor.camera_min_y == 0.11
+    assert loaded.cursor.camera_max_y == 0.91
+    assert loaded.cursor.sensitivity == 1.2
+    assert loaded.cursor.smoothing_alpha == 0.5
+    assert loaded.cursor.dead_zone_px == 7
 
 
 def test_v3_config_migrates_to_actual_orientation_and_operator_direction(
@@ -115,7 +207,7 @@ def test_v3_config_migrates_to_actual_orientation_and_operator_direction(
 
     loaded = load_config(path)
 
-    assert loaded.schema_version == 4
+    assert loaded.schema_version == 5
     assert loaded.runtime.flip_camera_x is False
     assert loaded.cursor.mirror_x is True
 

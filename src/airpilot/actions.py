@@ -9,6 +9,7 @@ from airpilot.domain.types import GestureEvents, HandLandmarks, TrackingFrame
 from airpilot.input import MouseController
 
 SHORTCUT_GESTURES = {
+    "help_secondary_index_hold",
     "shortcut_index_release",
     "shortcut_index_hold",
     "shortcut_middle_release",
@@ -46,6 +47,8 @@ class ActionRouter:
     )
     _last_action_ms: int = -1_000_000
     _released_drag_for_mode: bool = False
+    _released_drag_for_help: bool = False
+    _help: _ActionPinchState = field(default_factory=_ActionPinchState)
 
     def process(self, frame: TrackingFrame, events: GestureEvents) -> GestureEvents:
         if not self.actions.enabled or events.paused:
@@ -53,8 +56,12 @@ class ActionRouter:
             return events
 
         mode_held = _shortcut_mode_held(frame.secondary_hand, self.gestures)
+        help_held = _help_held(frame.secondary_hand, self.gestures) and not mode_held
+        help_events = self._process_help(events, frame.timestamp_ms, help_held)
+        if help_events.action_id is not None or help_events.active_gesture == "help_pending":
+            return help_events
         if not mode_held:
-            self._reset()
+            self._reset_shortcut()
             return events
 
         if self._mode_started_ms is None:
@@ -152,14 +159,52 @@ class ActionRouter:
             status="action",
         )
 
+    def _process_help(
+        self,
+        events: GestureEvents,
+        timestamp_ms: int,
+        active_now: bool,
+    ) -> GestureEvents:
+        if not self.gestures.help_gesture_enabled:
+            self._help = _ActionPinchState()
+            self._released_drag_for_help = False
+            return events
+        if active_now and not self._help.active:
+            self._help = _ActionPinchState(active=True, started_ms=timestamp_ms)
+            return self._suppress_help_mouse(events)
+        if active_now and self._help.active:
+            started = self._help.started_ms if self._help.started_ms is not None else timestamp_ms
+            suppressed = self._suppress_help_mouse(events)
+            if (
+                not self._help.consumed
+                and timestamp_ms - started >= self.gestures.help_gesture_hold_ms
+            ):
+                self._help.consumed = True
+                return self._emit(suppressed, "help_secondary_index_hold", timestamp_ms)
+            return suppressed
+        if not active_now and self._help.active:
+            self._help = _ActionPinchState()
+            self._released_drag_for_help = False
+        return events
+
     def _reset(self) -> None:
+        self._reset_shortcut()
+        self._help = _ActionPinchState()
+        self._released_drag_for_help = False
+
+    def _reset_shortcut(self) -> None:
         self._mode_started_ms = None
         self._released_drag_for_mode = False
         for key in self._pinches:
             self._pinches[key] = _ActionPinchState()
 
     @staticmethod
-    def _suppress_mouse(events: GestureEvents, *, active_gesture: str) -> GestureEvents:
+    def _suppress_mouse(
+        events: GestureEvents,
+        *,
+        active_gesture: str,
+        shortcut_mode: bool = True,
+    ) -> GestureEvents:
         return replace(
             events,
             move=None,
@@ -168,10 +213,23 @@ class ActionRouter:
             middle_click=False,
             drag_start=False,
             scroll=0,
-            shortcut_mode=True,
+            shortcut_mode=shortcut_mode,
             active_gesture=active_gesture,
             status=active_gesture,
         )
+
+    def _suppress_help_mouse(self, events: GestureEvents) -> GestureEvents:
+        suppressed = self._suppress_mouse(
+            events,
+            active_gesture="help_pending",
+            shortcut_mode=False,
+        )
+        if (events.drag_start or events.status == "dragging") and not self._released_drag_for_help:
+            suppressed = replace(suppressed, drag_end=True)
+            self._released_drag_for_help = True
+        if events.drag_end:
+            self._released_drag_for_help = False
+        return suppressed
 
 
 def dispatch_action(actions: ActionConfig, mouse: MouseController, action_id: str) -> str | None:
@@ -180,6 +238,8 @@ def dispatch_action(actions: ActionConfig, mouse: MouseController, action_id: st
         return None
     if entry.risky and not actions.risky_actions_enabled:
         return None
+    if not entry.keys:
+        return entry.label
     mouse.hotkey(entry.keys)
     return entry.label
 
@@ -196,17 +256,37 @@ def validate_action_config(actions: ActionConfig) -> None:
 
 def action_help_lines(actions: ActionConfig, *, max_actions: int = 5) -> list[str]:
     lines = [
-        "Gestures: index=left/drag | middle=right/hold middle | ring=scroll | pinky=pause",
+        "Mouse",
+        "Thumb + index pinch/release - Left click",
+        "Hold thumb + index - Drag; release to drop",
+        "Thumb + middle pinch/release - Right click",
+        "Hold thumb + middle - Middle click",
+        "Thumb + ring pinch + vertical movement - Scroll",
+        "Control",
+        "A - Arm/disarm mouse output",
+        "P - Pause/resume",
+        "H - Toggle this Help window",
+        "Q or Esc - Quit",
+        "Two-hand help gesture: hold second-hand thumb + index",
     ]
     if actions.enabled:
         enabled = [
-            f"{_gesture_label(gesture)}={actions.catalog[action_id].label}"
+            f"{_gesture_label(gesture)} - {actions.catalog[action_id].label}"
             for gesture, action_id in actions.gesture_actions.items()
-            if action_id in actions.catalog and actions.catalog[action_id].enabled
+            if action_id in actions.catalog
+            and actions.catalog[action_id].enabled
+            and action_id != "ui.toggle_help"
         ]
         if enabled:
-            lines.append("Shortcut mode: hold second-hand pinky pinch")
+            lines.append("Shortcut mode: hold second-hand thumb + pinky")
             lines.extend(enabled[:max_actions])
+        risky = [
+            entry.label
+            for entry in actions.catalog.values()
+            if entry.risky and (not entry.enabled or not actions.risky_actions_enabled)
+        ]
+        if risky:
+            lines.append("Risky actions disabled by default: " + ", ".join(risky[:4]))
     return lines
 
 
@@ -240,13 +320,27 @@ def _canonical_key(key: str) -> str:
 
 
 def _gesture_label(gesture_id: str) -> str:
-    return gesture_id.removeprefix("shortcut_").replace("_", " ")
+    labels = {
+        "shortcut_index_release": "Shortcut mode + thumb/index pinch",
+        "shortcut_index_hold": "Shortcut mode + hold thumb/index",
+        "shortcut_middle_release": "Shortcut mode + thumb/middle pinch",
+        "shortcut_ring_release": "Shortcut mode + thumb/ring pinch",
+        "shortcut_pinky_release": "Shortcut mode + thumb/pinky pinch",
+        "help_secondary_index_hold": "Second-hand thumb/index hold",
+    }
+    return labels.get(gesture_id, gesture_id.removeprefix("shortcut_").replace("_", " "))
 
 
 def _shortcut_mode_held(hand: HandLandmarks | None, gestures: GestureConfig) -> bool:
     if hand is None or len(hand.landmarks) < 21:
         return False
     return _distance(hand, THUMB_TIP, PINKY_TIP) <= gestures.pause_pinch_threshold
+
+
+def _help_held(hand: HandLandmarks | None, gestures: GestureConfig) -> bool:
+    if hand is None or len(hand.landmarks) < 21:
+        return False
+    return _distance(hand, THUMB_TIP, INDEX_TIP) <= gestures.pinch_threshold
 
 
 def _distance(hand: HandLandmarks, a: int, b: int) -> float:

@@ -1,6 +1,17 @@
-from airpilot.app import TrackingStats, status_lines
+import numpy as np
+
+from airpilot.app import (
+    HelpWindow,
+    TrackingStats,
+    _handle_keypress,
+    _help_image,
+    _help_lines,
+    status_lines,
+)
 from airpilot.config import AppConfig
 from airpilot.domain.types import GestureEvents, HandLandmarks, Landmark, TrackingFrame
+from airpilot.input import RecordingMouseController
+from airpilot.safety import MouseSafetyGate
 
 
 def test_status_lines_show_tracking_gesture_and_safe_mouse() -> None:
@@ -24,7 +35,7 @@ def test_status_lines_show_tracking_gesture_and_safe_mouse() -> None:
     assert "left_pinch" in lines[2]
     assert "control" in lines[2]
     assert "A arm" in lines[3]
-    assert any(line.startswith("Gestures:") for line in lines)
+    assert not any("Thumb + index" in line for line in lines)
 
 
 def test_status_lines_show_mouse_off_for_no_mouse_mode() -> None:
@@ -107,6 +118,78 @@ def test_overlay_layout_truncates_to_frame_width() -> None:
     assert layout[1].text.endswith("...")
 
 
+def test_h_key_toggles_help_window() -> None:
+    help_window = HelpWindow()
+
+    should_exit, notice = _handle_keypress(
+        ord("h"),
+        config=AppConfig(),
+        engine=_StubEngine(),
+        safety=MouseSafetyGate(),
+        mouse=RecordingMouseController(),
+        help_window=help_window,
+    )
+
+    assert not should_exit
+    assert notice == "Help opened"
+    assert help_window.visible is True
+
+    should_exit, notice = _handle_keypress(
+        ord("H"),
+        config=AppConfig(),
+        engine=_StubEngine(),
+        safety=MouseSafetyGate(),
+        mouse=RecordingMouseController(),
+        help_window=help_window,
+    )
+
+    assert not should_exit
+    assert notice == "Help closed"
+    assert help_window.visible is False
+
+
+def test_help_window_update_reuses_single_window(monkeypatch: object) -> None:
+    calls: list[str] = []
+    help_window = HelpWindow(visible=True)
+
+    monkeypatch.setattr("airpilot.app.cv2.getWindowProperty", lambda *_args: 1.0)
+    monkeypatch.setattr("airpilot.app.cv2.imshow", lambda title, _image: calls.append(title))
+
+    help_window.update(AppConfig())
+    help_window.update(AppConfig())
+
+    assert calls == ["AirPilot Help", "AirPilot Help"]
+    assert help_window.visible is True
+
+
+def test_help_window_stays_closed_after_manual_close(monkeypatch: object) -> None:
+    calls: list[str] = []
+    visible_values = iter([0.0])
+    help_window = HelpWindow(visible=True)
+
+    monkeypatch.setattr(
+        "airpilot.app.cv2.getWindowProperty",
+        lambda *_args: next(visible_values),
+    )
+    monkeypatch.setattr("airpilot.app.cv2.imshow", lambda title, _image: calls.append(title))
+
+    help_window.update(AppConfig())
+    help_window.update(AppConfig())
+
+    assert calls == ["AirPilot Help"]
+    assert help_window.visible is False
+
+
+def test_help_content_is_readable_and_renderable() -> None:
+    lines = _help_lines(AppConfig())
+    image = _help_image(lines)
+
+    assert "AirPilot Help" in lines
+    assert any("Thumb + index pinch/release" in line for line in lines)
+    assert isinstance(image, np.ndarray)
+    assert image.shape[0] > 0
+
+
 def test_tracking_stats_summary_is_aggregate_only() -> None:
     stats = TrackingStats()
     hand = HandLandmarks(tuple(Landmark(0.5, 0.5) for _ in range(21)), confidence=0.9)
@@ -146,3 +229,8 @@ def test_tracking_stats_handles_zero_and_out_of_order_timestamps() -> None:
     )
 
     assert stats.summary()["max_frame_gap_ms"] == 0
+
+
+class _StubEngine:
+    def toggle_pause(self) -> GestureEvents:
+        return GestureEvents(paused_changed=True, paused=True)

@@ -35,7 +35,8 @@ the existing gesture engine. MediaPipe is configured for up to two hands. The
 control-hand policy is deterministic: prefer a detected right hand, otherwise a
 left hand, otherwise the first unknown hand. The secondary hand gates shortcut
 mode by requiring an intentional second-hand thumb-pinky hold before shortcut
-gestures can emit keyboard actions.
+gestures can emit keyboard actions. A separate second-hand thumb-index hold
+toggles the help window without entering shortcut mode.
 
 ## Gesture Safety
 
@@ -46,7 +47,8 @@ Gestures are explicit states rather than one-frame classifications:
 - Pinch thresholds use release hysteresis.
 - Clicks have cooldowns.
 - Tracking loss resets pending gestures and releases active drag.
-- Paused mode suppresses movement and actions.
+- Paused mode suppresses movement and actions; the keyboard pause control is
+  always available, while gesture pause is opt-in to reduce accidental pauses.
 - Real mouse output is gated by an explicit safe/active state.
 - `--no-mouse` and diagnostics lock output off for that run; otherwise `A`
   enables/disables output even if a loaded config had mouse output disabled.
@@ -62,7 +64,8 @@ Default gestures:
 - Thumb-middle: right click.
 - Thumb-middle hold: middle click.
 - Thumb-ring: scroll mode.
-- Thumb-pinky: pause/resume hold.
+- Thumb-pinky: optional pause/resume hold when enabled in config.
+- Second-hand thumb-index hold: toggle the separate help window.
 - Second-hand thumb-pinky hold: shortcut mode; configured shortcut gestures emit
   enabled catalog actions such as copy, paste, switch app, and slide navigation.
 
@@ -75,8 +78,9 @@ Default cursor behavior:
   by default for intuitive pointer motion while leaving the preview unflipped.
 - Runtime display geometry comes from Win32 virtual-screen metrics, so the mapper
   targets absolute virtual-desktop coordinates including negative origins.
-- Camera bounds crop the active control region.
-- Smoothing and dead zone reduce jitter.
+- Camera bounds crop the active control region. Defaults intentionally use a
+  tighter active region for faster pointer travel.
+- Smoothing, sensitivity, and dead zone balance responsiveness against jitter.
 
 ## Action Catalog
 
