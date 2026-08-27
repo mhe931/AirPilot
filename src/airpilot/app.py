@@ -43,6 +43,13 @@ from airpilot.domain.pose import thumb_index_angle_deg
 from airpilot.domain.types import GestureEvents, TrackingFrame
 from airpilot.input import MouseController, PyAutoGuiMouseController
 from airpilot.safety import MouseSafetyGate
+from airpilot.shortcut_recorder import (
+    detect_shortcut_conflicts,
+    normalize_shortcut,
+    shortcut_label,
+    sync_custom_shortcuts,
+    validate_shortcut,
+)
 from airpilot.tracking import HandDrawingError, MediaPipeHandTracker
 
 PREVIEW_WINDOW_TITLE = "AirPilot"
@@ -352,6 +359,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     persisted_path = default_config_path() if config_path is None else config_path
     stored_schema_version = read_config_schema_version(persisted_path)
     config = load_config(config_path)
+    sync_custom_shortcuts(config)
     validate_action_config(config.actions)
     if stored_schema_version != config.schema_version:
         save_config(config, config_path)
@@ -1464,7 +1472,6 @@ class SettingsWindow:
             ("Hold (ms)", "hold_ms"),
             ("Cooldown (ms)", "cooldown_ms"),
             ("Sensitivity", "sensitivity"),
-            ("Action ID", "action_id"),
         ]
         self._bfield_vars: dict[str, tk.Variable] = {}
         combo_options: dict[str, tuple[str, ...]] = {
@@ -1507,8 +1514,60 @@ class SettingsWindow:
                 )
             self._bfield_vars[attr] = var
 
+        # Shortcut recorder — replaces the old free-text Action ID entry
+        shortcut_row = len(rows_def)
+        ttk.Label(detail, text="Shortcut:", anchor="e").grid(
+            row=shortcut_row, column=0, sticky="e", pady=2, padx=(0, 6)
+        )
+        self._shortcut_display_var = tk.StringVar(value="—")
+        self._recorded_shortcut_keys: tuple[str, ...] = ()
+        self._recording_modifiers: set[str] = set()
+        self._recording_active = False
+        sc_frame = ttk.Frame(detail)
+        sc_frame.grid(row=shortcut_row, column=1, sticky="ew", pady=2)
+        self._shortcut_display_lbl = ttk.Label(
+            sc_frame,
+            textvariable=self._shortcut_display_var,
+            relief="sunken",
+            width=18,
+            anchor="w",
+        )
+        self._shortcut_display_lbl.pack(side="left", padx=(0, 4))
+        self._record_btn = ttk.Button(sc_frame, text="Record…", command=self._start_recording)
+        self._record_btn.pack(side="left", padx=(0, 2))
+        ttk.Button(sc_frame, text="Clear", command=self._clear_shortcut).pack(side="left")
+
+        # Catalog action selector
+        catalog_row = shortcut_row + 1
+        ttk.Label(detail, text="Catalog action:", anchor="e").grid(
+            row=catalog_row, column=0, sticky="e", pady=2, padx=(0, 6)
+        )
+        catalog_ids = sorted(
+            aid for aid, e in self._config.actions.catalog.items() if not aid.startswith("custom.")
+        )
+        self._catalog_action_var = tk.StringVar(value="")
+        catalog_combo = ttk.Combobox(
+            detail,
+            textvariable=self._catalog_action_var,
+            values=[""] + catalog_ids,
+            state="readonly",
+            width=22,
+        )
+        catalog_combo.grid(row=catalog_row, column=1, sticky="ew", pady=2)
+        catalog_combo.bind("<<ComboboxSelected>>", self._on_catalog_action_selected)
+
+        # Conflict warning label
+        self._shortcut_conflict_var = tk.StringVar()
+        ttk.Label(
+            detail,
+            textvariable=self._shortcut_conflict_var,
+            foreground="orange",
+            wraplength=260,
+            justify="left",
+        ).grid(row=catalog_row + 1, column=0, columnspan=2, sticky="w", pady=(0, 2))
+
         # Enabled checkbox
-        en_row = len(rows_def)
+        en_row = catalog_row + 2
         self._binding_enabled_var = tk.BooleanVar()
         ttk.Checkbutton(
             detail,
@@ -1534,12 +1593,132 @@ class SettingsWindow:
         self._refresh_binding_list()
         self._current_binding_idx: int | None = None
 
+    # ------------------------------------------------------------------
+    # Shortcut recorder methods
+    # ------------------------------------------------------------------
+
+    def _start_recording(self) -> None:
+        """Enter keyboard-shortcut recording mode."""
+        self._recording_active = True
+        self._recording_modifiers = set()
+        self._recorded_shortcut_keys = ()
+        self._shortcut_display_var.set("Waiting for shortcut…")
+        self._shortcut_conflict_var.set("")
+        self._record_btn.configure(state="disabled")
+        win = self._window
+        if win is not None:
+            win.bind("<KeyPress>", self._on_record_keypress)
+            win.bind("<KeyRelease>", self._on_record_keyrelease)
+            win.focus_set()
+
+    def _on_record_keypress(self, event: tk.Event[tk.Misc]) -> None:
+        if not self._recording_active:
+            return
+        from airpilot.shortcut_recorder import MODIFIER_KEYS, keysym_to_canonical
+
+        canonical = keysym_to_canonical(event.keysym)
+        if canonical is None:
+            return
+        if canonical == "esc":
+            self._cancel_recording()
+            return
+        if canonical in MODIFIER_KEYS:
+            self._recording_modifiers.add(canonical)
+            # Show live modifiers while waiting for a non-modifier key
+            partial = sorted(
+                self._recording_modifiers,
+                key=lambda k: {"ctrl": 0, "shift": 1, "alt": 2, "win": 3}.get(k, 99),
+            )
+            self._shortcut_display_var.set("+".join(shortcut_label((k,)) for k in partial) + "+…")
+        else:
+            # Non-modifier key completes the recording
+            keys_raw = tuple(self._recording_modifiers) + (canonical,)
+            self._finish_recording(keys_raw)
+
+    def _on_record_keyrelease(self, event: tk.Event[tk.Misc]) -> None:
+        if not self._recording_active:
+            return
+        from airpilot.shortcut_recorder import MODIFIER_KEYS, keysym_to_canonical
+
+        canonical = keysym_to_canonical(event.keysym)
+        if canonical in MODIFIER_KEYS:
+            self._recording_modifiers.discard(canonical)
+
+    def _finish_recording(self, keys_raw: tuple[str, ...]) -> None:
+        self._recording_active = False
+        self._unbind_recording()
+        self._record_btn.configure(state="normal")
+        normalized = normalize_shortcut(keys_raw)
+        risky_ok = self._config.actions.risky_actions_enabled
+        error = validate_shortcut(normalized, risky_ok=risky_ok)
+        if error:
+            self._shortcut_display_var.set(f"⚠ {error}")
+            self._recorded_shortcut_keys = ()
+            return
+        self._recorded_shortcut_keys = normalized
+        self._shortcut_display_var.set(shortcut_label(normalized))
+        self._catalog_action_var.set("")
+        self._update_conflict_warning(normalized)
+
+    def _cancel_recording(self) -> None:
+        self._recording_active = False
+        self._unbind_recording()
+        self._record_btn.configure(state="normal")
+        if self._recorded_shortcut_keys:
+            self._shortcut_display_var.set(shortcut_label(self._recorded_shortcut_keys))
+        else:
+            self._shortcut_display_var.set("—")
+
+    def _unbind_recording(self) -> None:
+        win = self._window
+        if win is not None:
+            with suppress(tk.TclError):
+                win.unbind("<KeyPress>")
+            with suppress(tk.TclError):
+                win.unbind("<KeyRelease>")
+
+    def _clear_shortcut(self) -> None:
+        self._recorded_shortcut_keys = ()
+        self._shortcut_display_var.set("—")
+        self._shortcut_conflict_var.set("")
+        self._catalog_action_var.set("")
+
+    def _on_catalog_action_selected(self, _event: object = None) -> None:
+        """When a catalog action is selected, clear any recorded shortcut."""
+        action_id = str(self._catalog_action_var.get())
+        if action_id:
+            self._recorded_shortcut_keys = ()
+            self._shortcut_display_var.set("—")
+            self._shortcut_conflict_var.set("")
+
+    def _update_conflict_warning(self, keys: tuple[str, ...]) -> None:
+        idx = self._current_binding_idx
+        conflicts = detect_shortcut_conflicts(keys, self._bindings_work, skip_index=idx)
+        if conflicts:
+            names = ", ".join(f"'{c.conflicting_binding_id}'" for c in conflicts[:3])
+            self._shortcut_conflict_var.set(
+                f"⚠ Conflict with {names} — overlapping gesture / same shortcut. "
+                "Saving will override."
+            )
+        else:
+            self._shortcut_conflict_var.set("")
+
     def _refresh_binding_list(self) -> None:
         lb = self._binding_listbox
         lb.delete(0, tk.END)
+        # Detect per-binding conflicts for visual indicators
+        conflict_ids: set[str] = set()
+        for i, b in enumerate(self._bindings_work):
+            if b.shortcut_keys:
+                matches = detect_shortcut_conflicts(
+                    tuple(b.shortcut_keys), self._bindings_work, skip_index=i
+                )
+                if matches:
+                    conflict_ids.add(b.id)
         for b in self._bindings_work:
             prefix = "[on] " if b.enabled else "[off]"
-            lb.insert(tk.END, f"{prefix} {b.id or '(unnamed)'}")
+            warn = " ⚠" if b.id in conflict_ids else ""
+            lb.insert(tk.END, f"{prefix} {b.id or '(unnamed)'}{warn}")
         self._validate_bindings_display()
 
     def _validate_bindings_display(self) -> None:
@@ -1574,8 +1753,21 @@ class SettingsWindow:
         fv["hold_ms"].set(b.hold_ms)
         fv["cooldown_ms"].set(b.cooldown_ms)
         fv["sensitivity"].set(b.sensitivity)
-        fv["action_id"].set(b.action_id)
         self._binding_enabled_var.set(b.enabled)
+        # Load shortcut recorder state
+        if b.shortcut_keys:
+            self._recorded_shortcut_keys = tuple(b.shortcut_keys)
+            self._shortcut_display_var.set(shortcut_label(self._recorded_shortcut_keys))
+            self._catalog_action_var.set("")
+        else:
+            self._recorded_shortcut_keys = ()
+            self._shortcut_display_var.set("—")
+            # Show catalog action if binding uses one and it's not a custom auto-entry
+            if b.action_id and not b.action_id.startswith("custom."):
+                self._catalog_action_var.set(b.action_id)
+            else:
+                self._catalog_action_var.set("")
+        self._shortcut_conflict_var.set("")
 
     def _binding_save(self) -> None:
         idx = self._current_binding_idx
@@ -1583,6 +1775,18 @@ class SettingsWindow:
             return
         fv = self._bfield_vars
         try:
+            # Determine shortcut_keys and action_id from recorder / catalog selector
+            recorded = self._recorded_shortcut_keys
+            catalog_sel = str(self._catalog_action_var.get()).strip()
+            if recorded:
+                shortcut_keys: tuple[str, ...] = recorded
+                action_id_val = ""
+            elif catalog_sel:
+                shortcut_keys = ()
+                action_id_val = catalog_sel
+            else:
+                shortcut_keys = ()
+                action_id_val = ""
             new_b = GestureBinding(
                 id=str(fv["id"].get()).strip(),  # type: ignore[no-untyped-call]
                 enabled=bool(self._binding_enabled_var.get()),
@@ -1598,12 +1802,58 @@ class SettingsWindow:
                 hold_ms=int(fv["hold_ms"].get()),  # type: ignore[no-untyped-call]
                 cooldown_ms=int(fv["cooldown_ms"].get()),  # type: ignore[no-untyped-call]
                 sensitivity=float(fv["sensitivity"].get()),  # type: ignore[no-untyped-call]
-                action_id=str(fv["action_id"].get()).strip(),  # type: ignore[no-untyped-call]
+                action_id=action_id_val,
+                shortcut_keys=shortcut_keys,
             )
         except (ValueError, tk.TclError):
             self._binding_error_var.set("Invalid field value — check numeric fields.")
             return
+
+        # Conflict detection with confirmation
+        if shortcut_keys:
+            conflicts = detect_shortcut_conflicts(
+                shortcut_keys, self._bindings_work, skip_index=idx
+            )
+            if conflicts:
+                from tkinter import messagebox
+
+                names = "\n".join(
+                    f"  • '{c.conflicting_binding_id}' ({c.conflicting_context})"
+                    for c in conflicts[:5]
+                )
+                msg = (
+                    f"The shortcut {shortcut_label(shortcut_keys)!r} is already assigned in:\n"
+                    f"{names}\n\n"
+                    "Override those assignments?"
+                )
+                if not messagebox.askyesno("Shortcut Conflict", msg, icon="warning"):
+                    return
+                # Atomically clear the conflicting bindings' shortcut_keys
+                for c in conflicts:
+                    for j, other in enumerate(self._bindings_work):
+                        if other.id == c.conflicting_binding_id and j != idx:
+                            self._bindings_work[j] = GestureBinding(
+                                id=other.id,
+                                enabled=other.enabled,
+                                hand=other.hand,
+                                thumb=other.thumb,
+                                index=other.index,
+                                middle=other.middle,
+                                ring=other.ring,
+                                pinky=other.pinky,
+                                movement=other.movement,
+                                trigger=other.trigger,
+                                threshold=other.threshold,
+                                hold_ms=other.hold_ms,
+                                cooldown_ms=other.cooldown_ms,
+                                sensitivity=other.sensitivity,
+                                action_id=other.action_id,
+                                shortcut_keys=(),
+                            )
+                            break
+
         self._bindings_work[idx] = new_b
+        self._shortcut_conflict_var.set("")
         self._refresh_binding_list()
 
     def _binding_new(self) -> None:
@@ -1660,9 +1910,10 @@ class SettingsWindow:
             g.scroll_dead_zone = max(0.0, min(0.1, g.scroll_dead_zone))
             g.scroll_units_per_step = max(1, min(20, g.scroll_units_per_step))
 
-            # Gesture bindings — persist working copy
+            # Gesture bindings — persist working copy and sync custom catalog entries
             if hasattr(self, "_bindings_work"):
                 self._config.gesture_bindings = list(self._bindings_work)
+                sync_custom_shortcuts(self._config)
 
             # Typography settings
             if hasattr(self, "_typo_vars"):

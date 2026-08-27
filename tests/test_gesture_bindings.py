@@ -158,7 +158,7 @@ def test_config_round_trip_preserves_schema_version(tmp_path: Path) -> None:
     config = AppConfig()
     path = save_config(config, tmp_path / "cfg.json")
     loaded = load_config(path)
-    assert loaded.schema_version == 11
+    assert loaded.schema_version == 12
 
 
 # ---------------------------------------------------------------------------
@@ -181,7 +181,7 @@ def test_v9_migration_adds_default_gesture_bindings(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     loaded = load_config(path)
-    assert loaded.schema_version == 11
+    assert loaded.schema_version == 12
     assert len(loaded.gesture_bindings) >= 1
 
 

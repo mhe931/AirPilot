@@ -32,4 +32,13 @@ def test_disarm_releases_active_drag() -> None:
     gate.apply(mouse, GestureEvents(drag_start=True))
     assert gate.disarm(mouse)
 
-    assert mouse.actions == ["drag_start", "drag_end"]
+    assert mouse.actions == ["drag_start", "drag_end", "release_all_keys"]
+
+
+def test_disarm_calls_release_all_keys() -> None:
+    mouse = RecordingMouseController()
+    gate = MouseSafetyGate(armed=True)
+
+    gate.disarm(mouse)
+
+    assert "release_all_keys" in mouse.actions

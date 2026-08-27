@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
-CURRENT_SCHEMA_VERSION = 11
+CURRENT_SCHEMA_VERSION = 12
 
 # ---------------------------------------------------------------------------
 # Gesture Binding schema (data-driven configurable bindings)
@@ -60,6 +60,7 @@ class GestureBinding:
     cooldown_ms: int = 300
     sensitivity: float = 1.0
     action_id: str = ""
+    shortcut_keys: tuple[str, ...] = ()
 
 
 def _default_gesture_bindings() -> list[GestureBinding]:
@@ -141,6 +142,9 @@ def _bindings_from_list(raw: list[Any] | None) -> list[GestureBinding]:
             continue
         try:
             filtered = {k: v for k, v in item.items() if k in valid_names}
+            # shortcut_keys is stored as a JSON list; convert to tuple
+            if "shortcut_keys" in filtered and isinstance(filtered["shortcut_keys"], list):
+                filtered["shortcut_keys"] = tuple(str(k) for k in filtered["shortcut_keys"])
             result.append(GestureBinding(**filtered))
         except (TypeError, ValueError):
             pass
@@ -582,6 +586,8 @@ def _config_from_dict(raw: dict[str, Any]) -> AppConfig:
         return _migrate_v9_config(raw)
     if version == 10:
         return _migrate_v10_config(raw)
+    if version == 11:
+        return _migrate_v11_config(raw)
     if version != CURRENT_SCHEMA_VERSION:
         raise ValueError(f"Unsupported AirPilot config schema_version {version!r}")
     return AppConfig(
@@ -753,6 +759,19 @@ def _migrate_v9_config(raw: dict[str, Any]) -> AppConfig:
         cursor=CursorConfig(**_section(raw, "cursor")),
         actions=_actions_from_section(_section(raw, "actions")),
         runtime=RuntimeConfig(**_section(raw, "runtime")),
+    )
+
+
+def _migrate_v11_config(raw: dict[str, Any]) -> AppConfig:
+    """v11 → v12: GestureBinding gains ``shortcut_keys`` field (empty by default)."""
+    return AppConfig(
+        schema_version=CURRENT_SCHEMA_VERSION,
+        gestures=_gestures_from_section(_section(raw, "gestures")),
+        cursor=CursorConfig(**_section(raw, "cursor")),
+        actions=_actions_from_section(_section(raw, "actions")),
+        runtime=RuntimeConfig(**_section(raw, "runtime")),
+        gesture_bindings=_bindings_from_list(raw.get("gesture_bindings")),
+        text_styles=_text_style_from_section(_section(raw, "text_styles")),
     )
 
 
