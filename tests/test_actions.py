@@ -25,7 +25,7 @@ def test_action_help_lines_are_generated_from_config() -> None:
     assert "CORE MOUSE GESTURES" in lines
     assert "SHORTCUT MODE" in lines
     assert "AVAILABLE SHORTCUT ACTIONS" in lines
-    assert any("Thumb + index pinch/release | Left click" in line for line in lines)
+    assert any("Clutch + index bend/release | Left click" in line for line in lines)
     assert any("Copy" in line for line in lines)
     assert any("Clipboard history `Win+V`" in line for line in lines)
     assert any("RISKY ACTIONS" in line for line in lines)

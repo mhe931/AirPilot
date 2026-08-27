@@ -48,13 +48,15 @@ merge and delete them.
   `--no-mouse` or diagnostics, avoiding ambiguous preview-only runtime state.
 - A deliberate second-hand thumb-middle hold can arm AirPilot from the disarmed
   startup state without reaching for the keyboard.
-- Transient cursor feedback is behind a Windows-specific adapter and restored
-  during cleanup.
+- Cursor feedback no longer overrides the global Windows cursor icon; active
+  state is reported through the preview/help UI.
 - Physical hand-right now maps to pointer-right while keeping the actual camera
   preview orientation.
 - Win32 virtual-desktop geometry is used for cursor mapping, including negative
   origins for monitors left or above the primary display.
-- Middle click is available through deliberate thumb-middle hold/release.
+- Primary mouse gestures now use pose/clutch semantics: thumb open tracks,
+  thumb closed/bent freezes the pointer, index bend/release clicks or drags
+  while clutched, and middle bend/release maps to right or middle click.
 - A separate gesture/action help window is available with `H` or a deliberate
   second-hand thumb-index hold. The Help window is now a glanceable dashboard
   with quick-start cards, core gestures, controls, shortcut-mode mappings,
@@ -70,9 +72,9 @@ merge and delete them.
   smoothing, and a small dead zone for more responsive pointer movement.
 - Gesture pause is disabled by default to avoid accidental `PAUSED`; keyboard
   `P` remains available and the gesture can be re-enabled in config.
-- Thumb-index click candidates freeze the pointer at the intended target;
-  dragging now requires hold plus deliberate movement so long holds do not
-  become accidental drags.
+- Clutched click candidates freeze the pointer at the intended target; dragging
+  requires hold plus deliberate movement so long holds do not become accidental
+  drags.
 - The default app-switch flow is now Windows Task View: Shortcut Mode plus
   thumb-index hold opens `Win+Tab`, hand movement sends left/right navigation,
   and release confirms with Enter. Alt+Tab remains cataloged but is no longer a
@@ -92,7 +94,8 @@ merge and delete them.
 - Transient tracker exceptions are counted as `tracking_error_events` and
   converted into one frame of tracking loss instead of terminating the loop.
 - PyAutoGUI failsafe disarms mouse output and continues when it fires during
-  normal mouse control.
+  normal mouse control; repeated corner polling is latched to one warning until
+  the pointer leaves the failsafe condition or control is rearmed.
 
 ## Architecture
 
@@ -129,9 +132,8 @@ Last local automated validation:
 - `uv run --extra dev ruff format --check .`
 - `uv run --extra dev ruff check .`
 - `uv run --extra dev mypy src`
-- `uv run --extra dev python -m pytest`: 125 passed after exit-reason
-  instrumentation, Esc hardening, tracker-failure recovery tests, and long-run
-  synthetic coverage.
+- `uv run --extra dev python -m pytest`: 133 passed after pose/clutch,
+  cursor-feedback no-op, and failsafe latch coverage.
 - `uv run python -c "... MediaPipeHandTracker().draw(...)"` completed with
   `draw-ok` against the installed MediaPipe package.
 - `uv run --extra dev airpilot --camera 0` started without the prior preview
@@ -158,17 +160,17 @@ Last local automated validation:
 
 Manual live hand acquisition and real pointer gestures still must be run with a
 hand physically presented to the webcam for this follow-up. Required checks now
-focus on arm gesture, click accuracy, drag, Help glanceability, Task View,
-scroll up/down/control, Clipboard History, and overall feel.
+focus on thumb-open tracking, thumb-closed clutch, index/middle bend clicks,
+drag feel, arm gesture, Help glanceability, Task View, scroll up/down/control,
+Clipboard History, failsafe latch behavior, and overall feel.
 
 ## Known Issues
 
 - The package is unsigned.
 - Camera unplug/replug recovery now retries reopening the same camera index, but
   manual validation is still required to confirm recovery on this hardware.
-- Safe cursor feedback uses transient Windows cursor APIs rather than permanent
-  system cursor replacement; behavior over other applications needs manual
-  validation.
+- Cursor icon override is intentionally disabled; any future feedback should
+  remain local to AirPilot UI unless explicitly reapproved.
 - Two-hand shortcut mode, two-hand help, two-hand arm, and Task View gesture
   navigation are implemented but not yet manually validated with two physical
   hands.

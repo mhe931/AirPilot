@@ -513,6 +513,8 @@
     "click_freeze_radius_px": 16,
     "drag_hold_ms": 450,
     "drag_start_movement_px": 34,
+    "finger_bend_threshold": 1.35,
+    "finger_extend_threshold": 1.7,
     "help_gesture_enabled": true,
     "help_gesture_hold_ms": 900,
     "min_click_hold_ms": 80,
@@ -536,6 +538,8 @@
     "task_view_mirror_x": true,
     "task_view_navigation_cooldown_ms": 300,
     "task_view_navigation_delta": 0.07,
+    "thumb_close_threshold": 0.72,
+    "thumb_open_threshold": 0.95,
     "tracking_loss_grace_ms": 250
   },
   "runtime": {
@@ -553,5 +557,5 @@
     "tracker_detection_confidence": 0.55,
     "tracker_tracking_confidence": 0.55
   },
-  "schema_version": 7
+  "schema_version": 8
 }

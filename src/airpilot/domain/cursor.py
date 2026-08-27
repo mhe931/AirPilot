@@ -18,6 +18,9 @@ class CursorMapper:
     def reset(self) -> None:
         self._last = None
 
+    def set_current(self, position: CursorPosition | None) -> None:
+        self._last = position
+
     def map(self, point: Landmark) -> CursorPosition:
         mapped = self.project(point)
 

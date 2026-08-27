@@ -66,18 +66,21 @@ Pass:
 - Cursor reaches all four quadrants without leaving the control region.
 - Pointer response feels usable with the faster defaults and is not obviously
   slow or jumpy.
-- While active and tracking a usable hand, Windows cursor feedback changes to a
-  hand/pointer-style cursor where supported; it restores on hand loss, disarm,
-  pause, quit, or runtime failure.
-- With five thumb-index pinch/releases, exactly five left clicks occur at the
-  intended target; pinch jitter should not drag the pointer off target while the
-  click candidate is held.
-- Holding thumb-index without moving should not start drag. Holding thumb-index
-  and then moving deliberately starts drag; pressing `p` or removing the hand
-  releases it.
-- With five thumb-middle pinch/releases, exactly five right clicks occur.
-- With five deliberate thumb-middle hold/releases, exactly five middle clicks
+- Windows cursor icon does not change globally while AirPilot is active; status
+  feedback stays in the preview and help UI.
+- Open the control-hand thumb; the pointer follows index movement.
+- Close/bend the thumb; the overlay reports clutch/freeze and moving the hand no
+  longer moves the pointer until the thumb opens again.
+- While clutched, with five index bend/releases, exactly five left clicks occur
+  at the frozen target; hand jitter should not drag the pointer off target while
+  the click candidate is held.
+- While clutched, holding the index bent without moving should not start drag.
+  Holding the index bent and then moving deliberately starts drag; releasing the
+  index bend, pressing `p`, or removing the hand releases it.
+- While clutched, with five middle bend/releases, exactly five right clicks
   occur.
+- While clutched, with five deliberate middle long-hold/releases, exactly five
+  middle clicks occur.
 - Thumb-ring pinch plus vertical hand movement scrolls only while the overlay
   says `scrolling`. Move the hand up and down while holding the pinch; small
   movements should accumulate into smooth repeated wheel events, and releasing
@@ -88,7 +91,7 @@ Pass:
 - Ambiguous multi-pinch shapes show conflict/cancel behavior, not combined
   clicks.
 - Moving the pointer to a screen corner triggers PyAutoGUI failsafe, disarms
-  mouse output, and prints a warning instead of closing without context.
+  mouse output, and prints one warning while the pointer remains in the corner.
 - Press `a` again; overlay returns prominently to `AIRPILOT - DISARMED`.
 
 ## Two-Hand Tracking

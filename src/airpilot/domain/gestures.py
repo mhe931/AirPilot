@@ -5,6 +5,7 @@ from math import hypot
 
 from airpilot.config import GestureConfig
 from airpilot.domain.cursor import CursorMapper
+from airpilot.domain.pose import HandPose, estimate_hand_pose
 from airpilot.domain.types import (
     CursorPosition,
     GestureEvents,
@@ -53,6 +54,8 @@ class GestureEngine:
     _last_seen_ms: int | None = None
     _tracking_lost_reported: bool = False
     _click_anchor_position: CursorPosition | None = None
+    _clutch_active: bool = False
+    _clutch_anchor_position: CursorPosition | None = None
 
     def process(self, frame: TrackingFrame) -> GestureEvents:
         hand = frame.hand
@@ -72,22 +75,42 @@ class GestureEngine:
                 status="paused" if self.paused else "pause_pending",
             )
 
-        left_distance = _distance(hand, THUMB_TIP, INDEX_TIP)
-        right_distance = _distance(hand, THUMB_TIP, MIDDLE_TIP)
+        pose = estimate_hand_pose(
+            hand,
+            thumb_close_threshold=self.config.thumb_close_threshold,
+            thumb_open_threshold=self.config.thumb_open_threshold,
+            finger_bend_threshold=self.config.finger_bend_threshold,
+            finger_extend_threshold=self.config.finger_extend_threshold,
+        )
+        clutch_was_active = self._clutch_active
+        clutch_now = self._resolve_clutch(pose, hand.landmarks[INDEX_TIP])
+        clutch_releasing = clutch_was_active and not clutch_now
         scroll_distance = _distance(hand, THUMB_TIP, RING_TIP)
 
-        left_now = _hysteresis(
-            self._left.active,
-            left_distance,
-            self.config.pinch_threshold,
-            self.config.pinch_release_threshold,
-        )
-        right_now = _hysteresis(
-            self._right.active,
-            right_distance,
-            self.config.right_pinch_threshold,
-            self.config.right_pinch_release_threshold,
-        )
+        if pose.confident:
+            left_now = clutch_now and _finger_bent(
+                self._left.active, pose.index.flexion, self.config
+            )
+            right_now = clutch_now and _finger_bent(
+                self._right.active,
+                pose.middle.flexion,
+                self.config,
+            )
+        else:
+            left_distance = _distance(hand, THUMB_TIP, INDEX_TIP)
+            right_distance = _distance(hand, THUMB_TIP, MIDDLE_TIP)
+            left_now = _hysteresis(
+                self._left.active,
+                left_distance,
+                self.config.pinch_threshold,
+                self.config.pinch_release_threshold,
+            )
+            right_now = _hysteresis(
+                self._right.active,
+                right_distance,
+                self.config.right_pinch_threshold,
+                self.config.right_pinch_release_threshold,
+            )
         scroll_now = _hysteresis(
             self._scroll.active,
             scroll_distance,
@@ -101,14 +124,28 @@ class GestureEngine:
         )
 
         move = None
-        if not scroll_now and not left_now:
+        if scroll_now:
+            move = None
+        elif self._drag_active:
+            move = self.cursor_mapper.map(hand.landmarks[INDEX_TIP])
+        elif self._clutch_active:
+            move = self._clutch_anchor_position
+        elif not left_now:
             move = self.cursor_mapper.map(hand.landmarks[INDEX_TIP])
         events = GestureEvents(
             move=move,
             paused_changed=pause_changed,
             paused=self.paused,
-            active_gesture="conflict" if conflict else "tracking",
-            status="gesture_conflict" if conflict else "tracking",
+            active_gesture="conflict"
+            if conflict
+            else "clutch"
+            if self._clutch_active
+            else "tracking",
+            status="gesture_conflict"
+            if conflict
+            else "clutch"
+            if self._clutch_active
+            else "tracking",
         )
         if conflict:
             return events
@@ -121,6 +158,21 @@ class GestureEngine:
             hand.landmarks[WRIST],
             scroll_now,
         )
+        if clutch_releasing:
+            self._release_clutch()
+            if not (
+                events.left_click
+                or events.right_click
+                or events.middle_click
+                or events.drag_end
+                or events.scroll
+            ):
+                return replace(
+                    events,
+                    move=self.cursor_mapper.map(hand.landmarks[INDEX_TIP]),
+                    active_gesture="tracking",
+                    status="tracking",
+                )
         return events
 
     def _handle_missing_hand(self, timestamp_ms: int) -> GestureEvents:
@@ -132,6 +184,7 @@ class GestureEngine:
             self._drag_active = False
             self._left = _PinchState()
             self._click_anchor_position = None
+            self._release_clutch()
             return GestureEvents(
                 drag_end=True,
                 paused=self.paused,
@@ -176,8 +229,10 @@ class GestureEngine:
         active_now: bool,
     ) -> GestureEvents:
         if active_now and not self._left.active:
-            self._click_anchor_position = self.cursor_mapper.current or self.cursor_mapper.map(
-                index_tip
+            self._click_anchor_position = (
+                self._clutch_anchor_position
+                or self.cursor_mapper.current
+                or self.cursor_mapper.map(index_tip)
             )
             self._left = _PinchState(active=True, started_ms=timestamp_ms)
             return replace(
@@ -391,6 +446,24 @@ class GestureEngine:
         self._pause = _PinchState()
         self._drag_active = False
         self._click_anchor_position = None
+        self._release_clutch()
+
+    def _resolve_clutch(self, pose: HandPose, index_tip: Landmark) -> bool:
+        if not pose.confident:
+            return self._clutch_active
+        clutch_now = not pose.thumb_open if self._clutch_active else pose.thumb_closed
+        if clutch_now and not self._clutch_active:
+            self._clutch_anchor_position = self.cursor_mapper.current or self.cursor_mapper.map(
+                index_tip
+            )
+            self._clutch_active = True
+        return clutch_now
+
+    def _release_clutch(self) -> None:
+        if self._clutch_anchor_position is not None:
+            self.cursor_mapper.set_current(self._clutch_anchor_position)
+        self._clutch_active = False
+        self._clutch_anchor_position = None
 
 
 def _distance(hand: HandLandmarks, a: int, b: int) -> float:
@@ -413,6 +486,10 @@ def _freeze_anchor(
 
 def _hysteresis(active: bool, distance: float, threshold: float, release: float) -> bool:
     return distance <= (release if active else threshold)
+
+
+def _finger_bent(active: bool, flexion: float, config: GestureConfig) -> bool:
+    return flexion < (config.finger_extend_threshold if active else config.finger_bend_threshold)
 
 
 def _has_required_points(hand: HandLandmarks) -> bool:

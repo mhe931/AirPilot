@@ -29,8 +29,8 @@ Implemented:
   unexpected closes leave terminal evidence.
 - Transient tracker frame failures and PyAutoGUI failsafe events disarm/recover
   where possible instead of disappearing without context.
-- Transient Windows cursor feedback while active control-hand tracking is
-  available, restored on shutdown.
+- No global Windows cursor icon override; operator feedback stays in the
+  preview/help UI.
 - Windows mouse adapter through PyAutoGUI, isolated behind a testable interface.
 - Win32 virtual-desktop geometry and pointer movement so multi-monitor layouts,
   including monitors left or above the primary display, can be addressed.
@@ -112,11 +112,12 @@ If your webcam feed is already non-mirrored at the driver level, you can change
 Default gestures:
 
 - Second-hand thumb + middle hold: arm AirPilot from the disarmed startup state.
-- Thumb + index pinch, then release: left click. The pointer locks at the click
-  candidate position so pinch jitter does not move away from the target.
-- Thumb + index pinch and hold, then move deliberately: drag; release to drop.
-- Thumb + middle pinch, then release: right click.
-- Thumb + middle pinch and hold, then release: middle click.
+- Thumb open: pointer follows the control-hand index fingertip.
+- Thumb closed/bent: clutch/freeze the pointer.
+- While clutched, bend and release index: left click at the frozen target.
+- While clutched, hold bent index and move deliberately: drag; release to drop.
+- While clutched, bend and release middle: right click.
+- While clutched, hold middle long enough and release: middle click.
 - Thumb + ring pinch while moving the hand vertically: scroll wheel. AirPilot
   uses accumulated wrist movement while the pinch is held, so small movement can
   build into smooth repeated scrolling without moving the pointer.
@@ -140,7 +141,9 @@ region, higher sensitivity, lighter smoothing, and a small dead zone. Tune
 `%APPDATA%\AirPilot\config.json` if your setup feels too slow or too fast.
 For scroll feel, tune `gestures.scroll_sensitivity`,
 `gestures.scroll_activation_y_delta`, `gestures.scroll_cooldown_ms`, and
-`gestures.scroll_units_per_step`.
+`gestures.scroll_units_per_step`. For pose feel, tune
+`gestures.thumb_close_threshold`, `gestures.thumb_open_threshold`,
+`gestures.finger_bend_threshold`, and `gestures.finger_extend_threshold`.
 
 ## Validate
 

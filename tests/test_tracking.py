@@ -191,6 +191,56 @@ def test_run_reports_camera_unrecoverable_exit_reason(
     assert "AirPilot exit reason: camera_unrecoverable" in captured.err
 
 
+def test_run_latches_repeated_failsafe_corner_warning(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    image = np.zeros((8, 8, 3), dtype=np.uint8)
+
+    class FakeCamera:
+        backend_name = "fake"
+        reconnect_count = 0
+
+        def frames(self) -> list[CameraFrame]:
+            return [CameraFrame(image=image, timestamp_ms=index) for index in range(4)]
+
+        def close(self) -> None:
+            return None
+
+    class FakeTracker:
+        def track(self, _image: object, timestamp_ms: int) -> TrackingFrame:
+            return TrackingFrame(timestamp_ms=timestamp_ms, width=8, height=8, hand=None)
+
+        def draw(self, image: object, _hand: HandLandmarks | None) -> object:
+            return image
+
+        def close(self) -> None:
+            return None
+
+    class FakeMouse:
+        states = iter([True, True, False, False])
+
+        def emergency_stop_requested(self) -> bool:
+            return next(self.states)
+
+    class FakeDisplayProvider:
+        def virtual_desktop(self) -> VirtualDesktop:
+            return VirtualDesktop(left=0, top=0, width=100, height=100)
+
+    monkeypatch.setattr(app, "OpenCVCamera", lambda *_args, **_kwargs: FakeCamera())
+    monkeypatch.setattr(app, "MediaPipeHandTracker", lambda **_kwargs: FakeTracker())
+    monkeypatch.setattr(app, "PyAutoGuiMouseController", lambda **_kwargs: FakeMouse())
+    monkeypatch.setattr(app, "create_display_provider", lambda: FakeDisplayProvider())
+    monkeypatch.setattr(app.cv2, "destroyAllWindows", lambda: None)
+
+    config = AppConfig()
+    config.runtime.start_armed = True
+
+    assert app.run(config, show_preview=False) == 0
+
+    captured = capsys.readouterr()
+    assert captured.err.count("failsafe corner reached") == 1
+
+
 def test_prepare_camera_image_preserves_actual_orientation_by_default() -> None:
     image = np.array([[[1, 0, 0]], [[2, 0, 0]], [[3, 0, 0]]], dtype=np.uint8).transpose((1, 0, 2))
     config = AppConfig()

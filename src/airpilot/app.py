@@ -199,6 +199,7 @@ def run(
     exit_code = 0
     preview_created = False
     preview_visible_once = False
+    failsafe_latched = False
 
     try:
         camera = OpenCVCamera(
@@ -261,6 +262,8 @@ def run(
                     safety=safety,
                     mouse_output_locked=mouse_output_locked,
                 )
+                if safety.armed:
+                    failsafe_latched = False
             mouse_output_enabled = config.runtime.enable_real_mouse and not mouse_output_locked
             if mouse_output_enabled:
                 try:
@@ -276,10 +279,12 @@ def run(
                 except pyautogui.FailSafeException as exc:
                     safety.disarm(mouse)
                     operator_notice = "Failsafe corner reached; mouse control disarmed"
-                    print(
-                        f"AirPilot warning: {exc}. Mouse control disarmed; continuing.",
-                        file=sys.stderr,
-                    )
+                    if not failsafe_latched:
+                        print(
+                            f"AirPilot warning: {exc}. Mouse control disarmed; continuing.",
+                            file=sys.stderr,
+                        )
+                    failsafe_latched = True
             cursor_feedback.set_control_active(
                 mouse_output_enabled
                 and safety.armed
@@ -325,6 +330,11 @@ def run(
                 if key_exit_reason is not None:
                     exit_reason = key_exit_reason
                     break
+                if safety.armed and operator_notice in {
+                    "Mouse control enabled",
+                    "ARMED by gesture",
+                }:
+                    failsafe_latched = False
                 help_window.update(config)
                 preview_visibility = _preview_window_visibility(
                     PREVIEW_WINDOW_TITLE,
@@ -341,19 +351,24 @@ def run(
                 print(json.dumps(summary, sort_keys=True))
                 exit_reason = ExitReason.DIAGNOSTICS_COMPLETE
                 break
-            try:
-                emergency_stop = mouse.emergency_stop_requested()
-            except pyautogui.FailSafeException as exc:
-                emergency_stop = True
-                exit_detail = str(exc)
-            if emergency_stop:
-                safety.disarm(mouse)
-                operator_notice = "Failsafe corner reached; mouse control disarmed"
-                print(
-                    "AirPilot warning: failsafe corner reached. "
-                    "Mouse control disarmed; continuing.",
-                    file=sys.stderr,
-                )
+            if safety.armed or failsafe_latched:
+                try:
+                    emergency_stop = mouse.emergency_stop_requested()
+                except pyautogui.FailSafeException as exc:
+                    emergency_stop = True
+                    exit_detail = str(exc)
+                if emergency_stop:
+                    safety.disarm(mouse)
+                    operator_notice = "Failsafe corner reached; mouse control disarmed"
+                    if not failsafe_latched:
+                        print(
+                            "AirPilot warning: failsafe corner reached. "
+                            "Mouse control disarmed; continuing.",
+                            file=sys.stderr,
+                        )
+                    failsafe_latched = True
+                else:
+                    failsafe_latched = False
     except pyautogui.FailSafeException as exc:
         exit_reason = ExitReason.FAILSAFE
         exit_detail = str(exc)
@@ -626,6 +641,8 @@ def _headline_text(
             guidance = "TASK VIEW - previous app"
         elif events.active_gesture == "click_candidate":
             guidance = "CLICK LOCK - release to click, move farther to drag"
+        elif events.active_gesture == "clutch":
+            guidance = "CLUTCH - pointer frozen, bend index or middle"
         else:
             guidance = "Mouse control enabled"
     else:

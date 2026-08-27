@@ -13,8 +13,9 @@ Status: implemented; follow-up hardening added actual-orientation pointer
 correction, virtual-desktop monitor mapping, two-hand shortcut mode, glanceable
 gesture help, click-target locking, deliberate arm gesture, Clipboard History,
 Task View navigation, accumulated scroll, explicit runtime exit reasons, Esc
-quit hardening, transient tracker-failure recovery, and failsafe disarm/recover
-behavior. Final physical long-run validation remains pending.
+quit hardening, transient tracker-failure recovery, pose/clutch primary mouse
+gestures, disabled global cursor-icon override, and latched failsafe
+disarm/recover behavior. Final physical long-run validation remains pending.
 
 ## Milestone 2: Windows Hardening
 
