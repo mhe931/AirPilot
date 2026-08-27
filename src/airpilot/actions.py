@@ -513,7 +513,7 @@ def action_help_lines(actions: ActionConfig, *, max_actions: int | None = None) 
         "Arm gesture | Hold second-hand thumb + middle",
         "P | Pause/resume",
         "H | Toggle this Help window",
-        "Q or Esc | Quit",
+        "Q | Quit",
         "Help gesture | Hold second-hand thumb + index",
         "Shortcut Mode | Hold second-hand thumb + pinky",
     ]

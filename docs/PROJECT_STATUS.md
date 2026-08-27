@@ -3,12 +3,14 @@
 ## Phase
 
 Phase 1 Windows vertical slice is implemented. Follow-up Windows hardening and
-hardware-tuning work should use short-lived focused feature branches off `main`.
+hardware-tuning work should use short-lived focused branches off `main`, then
+merge and delete them.
 
 ## Repo State
 
 - Remote: `git@github.com:mhe931/AirPilot.git`
 - Default branch: `main`
+- Persistent branch policy: `main` only.
 - Main branch was unprotected when inspected on 2026-08-26.
 - PR #1 and PR #2 were merged when inspected on 2026-08-26.
 - No open issues were present when inspected.
@@ -16,7 +18,8 @@ hardware-tuning work should use short-lived focused feature branches off `main`.
 - PR #4 merged the MediaPipe preview-drawing compatibility fix into `main`.
 - PR #5 merged orientation and arming UX into `main`.
 - PR #6 merged Windows live interaction UX into `main`.
-- Current follow-up work is on `feature/windows-actions-monitors`.
+- PR #7 merged Windows actions, monitor mapping, stability instrumentation, and
+  cleanup into `main`.
 
 ## Completed
 
@@ -80,6 +83,16 @@ hardware-tuning work should use short-lived focused feature branches off `main`.
 - CI workflow, issue templates, PR template, package script, README, AGENTS
   handoff, roadmap, architecture, Android feasibility, and ADRs.
 - PyInstaller one-dir package build under `dist\AirPilot`.
+- Runtime termination now reports explicit terminal-side reasons:
+  `user_quit_q`, `main_window_closed`, `camera_unrecoverable`, `failsafe`,
+  `fatal_exception`, `diagnostics_complete`, `explicit_shutdown`, or `unknown`.
+- `Q` is the canonical AirPilot quit key. `Esc` is intentionally ignored by the
+  preview loop so Task View/system Esc actions cannot close AirPilot through
+  OpenCV key leakage.
+- Transient tracker exceptions are counted as `tracking_error_events` and
+  converted into one frame of tracking loss instead of terminating the loop.
+- PyAutoGUI failsafe disarms mouse output and continues when it fires during
+  normal mouse control.
 
 ## Architecture
 
@@ -116,8 +129,9 @@ Last local automated validation:
 - `uv run --extra dev ruff format --check .`
 - `uv run --extra dev ruff check .`
 - `uv run --extra dev mypy src`
-- `uv run --extra dev python -m pytest`: 101 passed after detailed Help,
-  Clipboard History, and scroll-state changes.
+- `uv run --extra dev python -m pytest`: 125 passed after exit-reason
+  instrumentation, Esc hardening, tracker-failure recovery tests, and long-run
+  synthetic coverage.
 - `uv run python -c "... MediaPipeHandTracker().draw(...)"` completed with
   `draw-ok` against the installed MediaPipe package.
 - `uv run --extra dev airpilot --camera 0` started without the prior preview
@@ -163,19 +177,16 @@ scroll up/down/control, Clipboard History, and overall feel.
   incorrect gesture behavior in this milestone.
 - Multi-monitor crossing, DPI, and UAC/elevated-window behavior need manual
   validation.
-- Current emergency controls are preview-window `q`/`Esc`/`p` plus PyAutoGUI
-  corner failsafe; no global hotkey or tray app yet.
+- Current emergency controls are preview-window `Q`, pause key `P`, and
+  PyAutoGUI corner failsafe; no global hotkey or tray app yet.
 
 ## Next
 
-Update PR #7 from `feature/windows-actions-monitors`, run source/package
-validation and CI, then request compact human validation with:
-`arm_gesture=<ok|fail> click_accuracy=<bad|good> drag=<ok|fail>
-help_glance=<bad|good> task_view_open=<ok|fail>
-task_view_left_right=<ok|fail> task_view_select=<ok|fail>
-scroll_up=<ok|fail> scroll_down=<ok|fail>
-scroll_control=<bad|good|too_fast|too_slow> clipboard_history=<ok|fail>
-feel=<short note>`.
+Run source/package validation and CI after each focused branch, then request
+compact human validation with:
+`run_duration=<minutes before manual quit or unexpected close>
+exit=<manual_q|closed_itself> exit_reason=<exact printed reason>
+mouse=<ok|fail> click=<ok|fail> feel=<short note>`.
 
 ## Decisions Not To Reverse Silently
 

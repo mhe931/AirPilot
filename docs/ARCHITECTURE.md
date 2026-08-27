@@ -52,6 +52,8 @@ Gestures are explicit states rather than one-frame classifications:
 - Scroll uses an explicit held state with pinch hysteresis, accumulated vertical
   wrist movement, configurable sensitivity, and a short emit cooldown.
 - Tracking loss resets pending gestures and releases active drag.
+- Transient tracker exceptions are treated as one frame of tracking loss and
+  counted in diagnostics; they do not terminate the runtime loop.
 - Paused mode suppresses movement and actions; the keyboard pause control is
   always available, while gesture pause is opt-in to reduce accidental pauses.
 - Real mouse output is gated by an explicit safe/active state and can be armed
@@ -108,7 +110,15 @@ and tab close are present but disabled and/or risky by default.
 
 ## Failure Handling
 
-- Camera open/read failures produce a clear runtime error and clean shutdown.
+- Every runtime shutdown prints `AirPilot exit reason: ...` to the terminal.
+  Current reasons include `user_quit_q`, `main_window_closed`,
+  `camera_unrecoverable`, `failsafe`, `fatal_exception`,
+  `diagnostics_complete`, `explicit_shutdown`, and `unknown`.
+- `Q` is the canonical preview quit key. `Esc` is ignored by AirPilot so
+  synthetic/system Esc actions, including Task View cancel behavior, do not leak
+  back through OpenCV and close the app.
+- Camera open/read failures produce a clear runtime error and clean shutdown
+  with `camera_unrecoverable`.
 - Transient camera read failures are retried before surfacing an error.
 - Sustained read failures trigger bounded reopen attempts on the same camera
   index before AirPilot exits.
@@ -118,7 +128,9 @@ and tab close are present but disabled and/or risky by default.
 - Cursor feedback restoration runs during cleanup so transient cursor state does
   not intentionally persist after quit, errors, or camera failure.
 - Tracking loss reports status and resets cursor smoothing.
-- PyAutoGUI corner failsafe is enabled by default.
+- PyAutoGUI corner failsafe is enabled by default. When it fires during normal
+  mouse output, AirPilot disarms pointer control and continues so the operator
+  can recover deliberately.
 - Automated tests use recording adapters and never move the real pointer, change
   the real cursor, send hotkeys, lock Windows, close windows, or switch desktops.
 

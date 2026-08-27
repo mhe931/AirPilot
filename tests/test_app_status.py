@@ -1,12 +1,14 @@
 import numpy as np
 
 from airpilot.app import (
+    ExitReason,
     HelpWindow,
     TrackingStats,
     _dispatch_ui_action,
     _handle_keypress,
     _help_image,
     _help_lines,
+    _preview_window_closed,
     _text_width,
     _wrap_help_lines,
     status_lines,
@@ -181,6 +183,54 @@ def test_h_key_toggles_help_window() -> None:
     assert help_window.visible is False
 
 
+def test_q_key_reports_explicit_quit_reason() -> None:
+    exit_reason, notice = _handle_keypress(
+        ord("q"),
+        config=AppConfig(),
+        engine=_StubEngine(),
+        safety=MouseSafetyGate(),
+        mouse=RecordingMouseController(),
+    )
+
+    assert exit_reason is ExitReason.USER_QUIT_Q
+    assert notice == "Quit requested"
+
+
+def test_escape_key_does_not_quit() -> None:
+    exit_reason, notice = _handle_keypress(
+        27,
+        config=AppConfig(),
+        engine=_StubEngine(),
+        safety=MouseSafetyGate(),
+        mouse=RecordingMouseController(),
+    )
+
+    assert exit_reason is None
+    assert notice == "Esc ignored; press Q to quit"
+
+
+def test_preview_close_detection_only_reports_actual_hidden_window(monkeypatch: object) -> None:
+    monkeypatch.setattr("airpilot.app.cv2.getWindowProperty", lambda *_args: 1.0)
+    assert not _preview_window_closed("AirPilot", preview_created=True)
+
+    monkeypatch.setattr("airpilot.app.cv2.getWindowProperty", lambda *_args: -1.0)
+    assert not _preview_window_closed("AirPilot", preview_created=True)
+
+    monkeypatch.setattr("airpilot.app.cv2.getWindowProperty", lambda *_args: 0.0)
+    assert _preview_window_closed("AirPilot", preview_created=True)
+
+
+def test_preview_close_detection_ignores_transient_opencv_errors(monkeypatch: object) -> None:
+    import cv2
+
+    def raise_cv2_error(*_args: object) -> float:
+        raise cv2.error("transient")
+
+    monkeypatch.setattr("airpilot.app.cv2.getWindowProperty", raise_cv2_error)
+
+    assert not _preview_window_closed("AirPilot", preview_created=True)
+
+
 def test_gesture_arm_enables_mouse_output_when_config_was_disabled() -> None:
     config = AppConfig()
     config.runtime.enable_real_mouse = False
@@ -256,6 +306,7 @@ def test_help_content_is_readable_and_renderable() -> None:
     assert any("Task View" in line for line in lines)
     assert any("Thumb + index pinch/release | Left click" in line for line in lines)
     assert any("Clipboard history `Win+V`" in line for line in lines)
+    assert "Q | Quit" in lines
     assert isinstance(image, np.ndarray)
     assert image.shape[0] > 0
     assert image.shape[0] <= 760

@@ -3,8 +3,10 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import traceback
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import Path
 from time import perf_counter
 from typing import Protocol
@@ -37,6 +39,20 @@ from airpilot.input import MouseController, PyAutoGuiMouseController
 from airpilot.safety import MouseSafetyGate
 from airpilot.tracking import HandDrawingError, MediaPipeHandTracker
 
+PREVIEW_WINDOW_TITLE = "AirPilot"
+
+
+class ExitReason(StrEnum):
+    USER_QUIT_Q = "user_quit_q"
+    USER_QUIT_ESCAPE = "user_quit_escape"
+    MAIN_WINDOW_CLOSED = "main_window_closed"
+    CAMERA_UNRECOVERABLE = "camera_unrecoverable"
+    FAILSAFE = "failsafe"
+    FATAL_EXCEPTION = "fatal_exception"
+    EXPLICIT_SHUTDOWN = "explicit_shutdown"
+    DIAGNOSTICS_COMPLETE = "diagnostics_complete"
+    UNKNOWN = "unknown"
+
 
 @dataclass(slots=True)
 class TrackingStats:
@@ -49,6 +65,7 @@ class TrackingStats:
     max_frame_gap_ms: int = 0
     frame_width: int = 0
     frame_height: int = 0
+    tracking_error_events: int = 0
 
     def observe(self, frame: TrackingFrame, events: GestureEvents) -> None:
         self.frames += 1
@@ -89,9 +106,13 @@ class TrackingStats:
             "hand_acquisition_rate": round(self.hand_acquisition_rate, 3),
             "fps": round(self.fps, 1),
             "tracking_lost_events": self.tracking_lost_events,
+            "tracking_error_events": self.tracking_error_events,
             "max_frame_gap_ms": self.max_frame_gap_ms,
             "hand_observed": self.hand_frames > 0,
         }
+
+    def observe_tracking_error(self) -> None:
+        self.tracking_error_events += 1
 
 
 class PauseController(Protocol):
@@ -173,6 +194,11 @@ def run(
     stats = TrackingStats()
     drawing_error: str | None = None
     operator_notice: str | None = None
+    exit_reason = ExitReason.UNKNOWN
+    exit_detail: str | None = None
+    exit_code = 0
+    preview_created = False
+    preview_visible_once = False
 
     try:
         camera = OpenCVCamera(
@@ -207,7 +233,22 @@ def run(
         )
         for camera_frame in camera.frames():
             image = _prepare_camera_image(camera_frame.image, config)
-            frame = tracker.track(image, camera_frame.timestamp_ms)
+            try:
+                frame = tracker.track(image, camera_frame.timestamp_ms)
+            except Exception as exc:
+                stats.observe_tracking_error()
+                frame = TrackingFrame(
+                    timestamp_ms=camera_frame.timestamp_ms,
+                    width=camera_frame.width,
+                    height=camera_frame.height,
+                    hand=None,
+                )
+                if stats.tracking_error_events <= 3 or stats.tracking_error_events % 30 == 0:
+                    print(
+                        "AirPilot warning: tracking failed for one frame; "
+                        f"continuing ({type(exc).__name__}: {exc}).",
+                        file=sys.stderr,
+                    )
             events = engine.process(frame)
             events = action_router.process(frame, events)
             if events.action_id == "ui.toggle_help":
@@ -222,15 +263,23 @@ def run(
                 )
             mouse_output_enabled = config.runtime.enable_real_mouse and not mouse_output_locked
             if mouse_output_enabled:
-                safety.apply(mouse, events)
-                if (
-                    safety.armed
-                    and events.action_id is not None
-                    and not events.action_id.startswith("ui.")
-                ):
-                    action_label = dispatch_action(config.actions, mouse, events.action_id)
-                    if action_label is not None:
-                        operator_notice = f"ACTION: {action_label}"
+                try:
+                    safety.apply(mouse, events)
+                    if (
+                        safety.armed
+                        and events.action_id is not None
+                        and not events.action_id.startswith("ui.")
+                    ):
+                        action_label = dispatch_action(config.actions, mouse, events.action_id)
+                        if action_label is not None:
+                            operator_notice = f"ACTION: {action_label}"
+                except pyautogui.FailSafeException as exc:
+                    safety.disarm(mouse)
+                    operator_notice = "Failsafe corner reached; mouse control disarmed"
+                    print(
+                        f"AirPilot warning: {exc}. Mouse control disarmed; continuing.",
+                        file=sys.stderr,
+                    )
             cursor_feedback.set_control_active(
                 mouse_output_enabled
                 and safety.armed
@@ -262,8 +311,9 @@ def run(
                     operator_notice=operator_notice,
                     mouse_output_locked=mouse_output_locked,
                 )
-                cv2.imshow("AirPilot", image)
-                should_exit, operator_notice = _handle_keypress(
+                cv2.imshow(PREVIEW_WINDOW_TITLE, image)
+                preview_created = True
+                key_exit_reason, operator_notice = _handle_keypress(
                     cv2.waitKey(1),
                     config=config,
                     engine=engine,
@@ -272,22 +322,55 @@ def run(
                     help_window=help_window,
                     mouse_output_locked=mouse_output_locked,
                 )
-                if should_exit:
+                if key_exit_reason is not None:
+                    exit_reason = key_exit_reason
                     break
                 help_window.update(config)
+                preview_visibility = _preview_window_visibility(
+                    PREVIEW_WINDOW_TITLE,
+                    preview_created=preview_created,
+                )
+                if preview_visibility is True:
+                    preview_visible_once = True
+                elif preview_visibility is False and preview_visible_once:
+                    exit_reason = ExitReason.MAIN_WINDOW_CLOSED
+                    break
             if diagnose_seconds is not None and stats.elapsed_seconds >= diagnose_seconds:
                 summary = stats.summary(camera_backend=camera.backend_name)
                 summary["camera_reconnects"] = camera.reconnect_count
                 print(json.dumps(summary, sort_keys=True))
+                exit_reason = ExitReason.DIAGNOSTICS_COMPLETE
                 break
-            if mouse.emergency_stop_requested():
-                break
-    except pyautogui.FailSafeException:
-        print("AirPilot stopped by PyAutoGUI failsafe corner.", file=sys.stderr)
-        return 2
+            try:
+                emergency_stop = mouse.emergency_stop_requested()
+            except pyautogui.FailSafeException as exc:
+                emergency_stop = True
+                exit_detail = str(exc)
+            if emergency_stop:
+                safety.disarm(mouse)
+                operator_notice = "Failsafe corner reached; mouse control disarmed"
+                print(
+                    "AirPilot warning: failsafe corner reached. "
+                    "Mouse control disarmed; continuing.",
+                    file=sys.stderr,
+                )
+    except pyautogui.FailSafeException as exc:
+        exit_reason = ExitReason.FAILSAFE
+        exit_detail = str(exc)
+        exit_code = 2
     except RuntimeError as exc:
-        print(f"AirPilot runtime error: {exc}", file=sys.stderr)
-        return 1
+        exit_reason = (
+            ExitReason.CAMERA_UNRECOVERABLE
+            if "camera" in str(exc).lower()
+            else ExitReason.FATAL_EXCEPTION
+        )
+        exit_detail = str(exc)
+        exit_code = 1
+    except Exception as exc:
+        exit_reason = ExitReason.FATAL_EXCEPTION
+        exit_detail = f"{type(exc).__name__}: {exc}"
+        traceback.print_exc(file=sys.stderr)
+        exit_code = 1
     finally:
         if camera is not None:
             camera.close()
@@ -300,7 +383,10 @@ def run(
         if "help_window" in locals():
             help_window.close()
         cv2.destroyAllWindows()
-    return 0
+        if exit_reason is ExitReason.UNKNOWN:
+            exit_reason = ExitReason.EXPLICIT_SHUTDOWN
+        _report_exit(exit_reason, exit_detail)
+    return exit_code
 
 
 def status_lines(
@@ -420,7 +506,7 @@ def _prepare_camera_image(image: MatLike, config: AppConfig) -> MatLike:
 def _normalized_key(key: int) -> str | None:
     normalized = key & 0xFF
     if normalized == 27:
-        return "quit"
+        return "escape"
     if 32 <= normalized <= 126:
         return chr(normalized).lower()
     return None
@@ -435,30 +521,55 @@ def _handle_keypress(
     mouse: MouseController,
     help_window: HelpWindow | None = None,
     mouse_output_locked: bool = False,
-) -> tuple[bool, str | None]:
+) -> tuple[ExitReason | None, str | None]:
     command = _normalized_key(key)
     if command == "q":
-        return True, "Quit requested"
+        return ExitReason.USER_QUIT_Q, "Quit requested"
     if command == "p":
         pause_events = engine.toggle_pause()
         if config.runtime.enable_real_mouse and not mouse_output_locked:
             safety.apply(mouse, pause_events)
-        return False, "Paused" if pause_events.paused else "Resumed"
+        return None, "Paused" if pause_events.paused else "Resumed"
     if command == "h":
-        return False, _dispatch_ui_action("ui.toggle_help", help_window)
+        return None, _dispatch_ui_action("ui.toggle_help", help_window)
     if command == "a":
         if mouse_output_locked:
-            return False, "Mouse output disabled for diagnostics/--no-mouse"
+            return None, "Mouse output disabled for diagnostics/--no-mouse"
         if not config.runtime.enable_real_mouse:
             config.runtime.enable_real_mouse = True
         if safety.armed:
             safety.disarm(mouse)
-            return False, "Mouse control disabled"
+            return None, "Mouse control disabled"
         safety.toggle()
-        return False, "Mouse control enabled"
-    if command == "quit":
-        return True, "Quit requested"
-    return False, None
+        return None, "Mouse control enabled"
+    if command == "escape":
+        return None, "Esc ignored; press Q to quit"
+    return None, None
+
+
+def _preview_window_closed(title: str, *, preview_created: bool) -> bool:
+    return _preview_window_visibility(title, preview_created=preview_created) is False
+
+
+def _preview_window_visibility(title: str, *, preview_created: bool) -> bool | None:
+    if not preview_created:
+        return None
+    try:
+        visible = cv2.getWindowProperty(title, cv2.WND_PROP_VISIBLE)
+    except cv2.error:
+        return None
+    if visible >= 1:
+        return True
+    if visible == 0:
+        return False
+    return None
+
+
+def _report_exit(reason: ExitReason, detail: str | None = None) -> None:
+    message = f"AirPilot exit reason: {reason.value}"
+    if detail:
+        message = f"{message} ({detail})"
+    print(message, file=sys.stderr)
 
 
 def _dispatch_ui_action(

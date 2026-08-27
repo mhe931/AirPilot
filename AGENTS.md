@@ -13,13 +13,15 @@ Android must remain documentation-only until explicitly requested.
 
 - Remote: `git@github.com:mhe931/AirPilot.git`
 - Default branch: `main`
-- Create a focused feature branch for each milestone; verify the current branch
-  before editing.
+- Persistent branch policy: `main` only. Future agents may create short-lived
+  focused branches, but merge and delete them before handoff.
 - Main is not branch-protected as of 2026-08-26.
 - PR #3 merged camera reconnect hardening into `main`.
 - PR #4 merged the MediaPipe preview-drawing compatibility fix into `main`.
 - PR #5 merged orientation/arming UX into `main`.
 - PR #6 merged Windows live interaction UX into `main`.
+- PR #7 merged Windows actions, monitor mapping, stability instrumentation, and
+  cleanup into `main`.
 
 ## Architecture Paths
 
@@ -54,6 +56,7 @@ powershell -ExecutionPolicy Bypass -File scripts/package_windows.ps1
 
 - Preserve unrelated user work.
 - Never push directly to `main`.
+- Do not leave local or remote feature branches behind after completed work.
 - Do not implement Android in Phase 1.
 - Keep gesture/domain logic reusable and platform-independent.
 - Do not store, upload, or log camera frames by default.
@@ -119,18 +122,24 @@ powershell -ExecutionPolicy Bypass -File scripts/package_windows.ps1
   deliberate movement.
 - Default app switching uses Task View: Shortcut Mode plus thumb-index hold opens
   `Win+Tab`, hand movement sends left/right, and release confirms with Enter.
+- Runtime exits print `AirPilot exit reason: ...`. Canonical quit is preview
+  key `Q`; `Esc` is ignored by AirPilot so synthetic/system Esc from Task View
+  cannot close the preview loop.
+- Transient tracker exceptions are counted in diagnostics and treated as
+  tracking loss for that frame. PyAutoGUI failsafe disarms mouse output and
+  continues when recovery is possible.
 
 ## Known Issues
 
 - Manual validation is still required for arm gesture, click accuracy, drag,
-  Help glanceability, Task View, scroll up/down/control, Clipboard History, and
-  feel before merging PR #7.
+  Help glanceability, Task View, scroll up/down/control, Clipboard History,
+  long-run stability, and feel.
 - Packaged executable is unsigned.
 - Camera unplug/replug recovery now retries reopening the same camera index, but
   recovery still depends on Windows presenting the device again on that index.
 - Multi-monitor DPI behavior has not been manually validated.
 - Global hotkey/tray emergency stop is not implemented; current stop controls
-  are preview-window keys and PyAutoGUI corner failsafe.
+  are preview-window `Q` and PyAutoGUI corner failsafe.
 
 ## Milestone Acceptance
 
@@ -148,12 +157,9 @@ powershell -ExecutionPolicy Bypass -File scripts/package_windows.ps1
 ## Next Task
 
 Run the compact live validation checklist and collect:
-`arm_gesture=<ok|fail> click_accuracy=<bad|good> drag=<ok|fail>
-help_glance=<bad|good> task_view_open=<ok|fail>
-task_view_left_right=<ok|fail> task_view_select=<ok|fail>
-scroll_up=<ok|fail> scroll_down=<ok|fail>
-scroll_control=<bad|good|too_fast|too_slow> clipboard_history=<ok|fail>
-feel=<short note>`.
+`run_duration=<minutes before manual quit or unexpected close>
+exit=<manual_q|closed_itself> exit_reason=<exact printed reason>
+mouse=<ok|fail> click=<ok|fail> feel=<short note>`.
 
 ## Decisions Not To Silently Reverse
 

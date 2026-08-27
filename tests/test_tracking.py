@@ -75,6 +75,122 @@ def test_run_disables_preview_landmarks_after_draw_failure(
     assert "Preview landmarks disabled" in captured.err
 
 
+def test_run_survives_transient_tracker_failure(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    image = np.zeros((8, 8, 3), dtype=np.uint8)
+
+    class FakeCamera:
+        backend_name = "fake"
+        reconnect_count = 0
+
+        def frames(self) -> list[CameraFrame]:
+            return [CameraFrame(image=image, timestamp_ms=1)]
+
+        def close(self) -> None:
+            return None
+
+    class FakeTracker:
+        def track(self, _image: object, _timestamp_ms: int) -> TrackingFrame:
+            raise ValueError("temporary tracker fault")
+
+        def draw(self, image: object, _hand: HandLandmarks | None) -> object:
+            return image
+
+        def close(self) -> None:
+            return None
+
+    class FakeMouse:
+        def emergency_stop_requested(self) -> bool:
+            return False
+
+    class FakeDisplayProvider:
+        def virtual_desktop(self) -> VirtualDesktop:
+            return VirtualDesktop(left=0, top=0, width=100, height=100)
+
+    monkeypatch.setattr(app, "OpenCVCamera", lambda *_args, **_kwargs: FakeCamera())
+    monkeypatch.setattr(app, "MediaPipeHandTracker", lambda **_kwargs: FakeTracker())
+    monkeypatch.setattr(app, "PyAutoGuiMouseController", lambda **_kwargs: FakeMouse())
+    monkeypatch.setattr(app, "create_display_provider", lambda: FakeDisplayProvider())
+    monkeypatch.setattr(app.cv2, "destroyAllWindows", lambda: None)
+
+    config = AppConfig()
+    assert app.run(config, diagnose_seconds=0.0, show_preview=False, mouse_output_locked=True) == 0
+
+    captured = capsys.readouterr()
+    assert '"tracking_error_events": 1' in captured.out
+    assert "tracking failed for one frame" in captured.err
+    assert "AirPilot exit reason: diagnostics_complete" in captured.err
+
+
+def test_run_processes_long_synthetic_soak_without_termination(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    image = np.zeros((8, 8, 3), dtype=np.uint8)
+
+    class FakeCamera:
+        backend_name = "fake"
+        reconnect_count = 0
+
+        def frames(self) -> list[CameraFrame]:
+            return [CameraFrame(image=image.copy(), timestamp_ms=index) for index in range(1000)]
+
+        def close(self) -> None:
+            return None
+
+    class FakeTracker:
+        def track(self, _image: object, timestamp_ms: int) -> TrackingFrame:
+            hand = (
+                HandLandmarks(tuple(Landmark(0.5, 0.5) for _ in range(21)))
+                if timestamp_ms % 3
+                else None
+            )
+            return TrackingFrame(timestamp_ms=timestamp_ms, width=8, height=8, hand=hand)
+
+        def draw(self, image: object, _hand: HandLandmarks | None) -> object:
+            return image
+
+        def close(self) -> None:
+            return None
+
+    class FakeMouse:
+        def emergency_stop_requested(self) -> bool:
+            return False
+
+    class FakeDisplayProvider:
+        def virtual_desktop(self) -> VirtualDesktop:
+            return VirtualDesktop(left=0, top=0, width=100, height=100)
+
+    monkeypatch.setattr(app, "OpenCVCamera", lambda *_args, **_kwargs: FakeCamera())
+    monkeypatch.setattr(app, "MediaPipeHandTracker", lambda **_kwargs: FakeTracker())
+    monkeypatch.setattr(app, "PyAutoGuiMouseController", lambda **_kwargs: FakeMouse())
+    monkeypatch.setattr(app, "create_display_provider", lambda: FakeDisplayProvider())
+    monkeypatch.setattr(app.cv2, "destroyAllWindows", lambda: None)
+
+    assert app.run(AppConfig(), show_preview=False, mouse_output_locked=True) == 0
+
+    captured = capsys.readouterr()
+    assert "AirPilot exit reason: explicit_shutdown" in captured.err
+
+
+def test_run_reports_camera_unrecoverable_exit_reason(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(
+        app,
+        "OpenCVCamera",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("Could not open camera index 0")
+        ),
+    )
+    monkeypatch.setattr(app.cv2, "destroyAllWindows", lambda: None)
+
+    assert app.run(AppConfig(), show_preview=False, mouse_output_locked=True) == 1
+
+    captured = capsys.readouterr()
+    assert "AirPilot exit reason: camera_unrecoverable" in captured.err
+
+
 def test_prepare_camera_image_preserves_actual_orientation_by_default() -> None:
     image = np.array([[[1, 0, 0]], [[2, 0, 0]], [[3, 0, 0]]], dtype=np.uint8).transpose((1, 0, 2))
     config = AppConfig()

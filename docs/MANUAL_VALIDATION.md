@@ -15,6 +15,7 @@ Pass:
 - Diagnostics prints JSON with `frames > 0`, `frame_width > 0`, and
   `frame_height > 0`.
 - Diagnostics includes `camera_reconnects`.
+- Diagnostics includes `tracking_error_events`.
 - If your hand is visible to the camera during the diagnostic, `hand_observed`
   should be `true`.
 
@@ -33,7 +34,10 @@ Pass:
 - If preview landmark rendering fails, the app should stay running and show
   `preview landmarks disabled` rather than crashing.
 - No frames are saved to the repo, config directory, or temp directory.
-- `q` and `Esc` stop the app.
+- `q` stops the app and the terminal prints `AirPilot exit reason:
+  user_quit_q`.
+- `Esc` does not stop AirPilot; the overlay reports that Esc is ignored and Q is
+  the quit key.
 - `p` toggles pause/resume.
 
 ## Real Mouse
@@ -83,7 +87,8 @@ Pass:
   hold pauses and resumes without firing clicks.
 - Ambiguous multi-pinch shapes show conflict/cancel behavior, not combined
   clicks.
-- Moving the pointer to a screen corner stops through PyAutoGUI failsafe.
+- Moving the pointer to a screen corner triggers PyAutoGUI failsafe, disarms
+  mouse output, and prints a warning instead of closing without context.
 - Press `a` again; overlay returns prominently to `AIRPILOT - DISARMED`.
 
 ## Two-Hand Tracking
@@ -123,7 +128,7 @@ First validate safe actions:
 After the live pass, report:
 
 ```text
-arm_gesture=<ok|fail> click_accuracy=<bad|good> drag=<ok|fail> help_glance=<bad|good> task_view_open=<ok|fail> task_view_left_right=<ok|fail> task_view_select=<ok|fail> scroll_up=<ok|fail> scroll_down=<ok|fail> scroll_control=<bad|good|too_fast|too_slow> clipboard_history=<ok|fail> feel=<short note>
+run_duration=<minutes before manual quit or unexpected close> exit=<manual_q|closed_itself> exit_reason=<exact printed reason> mouse=<ok|fail> click=<ok|fail> feel=<short note>
 ```
 
 ## Edge Cases
@@ -134,7 +139,8 @@ Verify and record:
 - Occlusion.
 - Camera unplug/replug. If Windows restores the device on the same index within
   the retry window, AirPilot should recover without a manual restart; otherwise
-  it should exit with a clear runtime error instead of hanging.
+  it should exit with `AirPilot exit reason: camera_unrecoverable` instead of
+  hanging.
 - Camera already in use by another app.
 - Sleep/wake.
 - Multi-monitor layout.

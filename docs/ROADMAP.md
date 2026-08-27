@@ -12,8 +12,9 @@
 Status: implemented; follow-up hardening added actual-orientation pointer
 correction, virtual-desktop monitor mapping, two-hand shortcut mode, glanceable
 gesture help, click-target locking, deliberate arm gesture, Clipboard History,
-Task View navigation, and accumulated scroll. Final physical validation remains
-pending.
+Task View navigation, accumulated scroll, explicit runtime exit reasons, Esc
+quit hardening, transient tracker-failure recovery, and failsafe disarm/recover
+behavior. Final physical long-run validation remains pending.
 
 ## Milestone 2: Windows Hardening
 
@@ -21,6 +22,8 @@ pending.
 - Global hotkey and tray pause/quit.
 - Calibration UI.
 - Multi-monitor and DPI validation refinements.
+- Longer hardware soak validation using the printed exit reason if any
+  unexpected close remains.
 - Safer startup wizard with mouse disabled by default until user arms control.
 - Better gesture visualization and confidence feedback.
 - Virtual keyboard and richer two-hand gestures using the current shortcut-mode

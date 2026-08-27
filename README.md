@@ -25,6 +25,10 @@ Implemented:
   hand reserved for future interactions.
 - Compact preview banner for DISARMED, ACTIVE, PAUSED, and preview-only modes.
 - Bounded camera reopen attempts after sustained frame-read failures.
+- Runtime shutdown always prints an `AirPilot exit reason: ...` line so
+  unexpected closes leave terminal evidence.
+- Transient tracker frame failures and PyAutoGUI failsafe events disarm/recover
+  where possible instead of disappearing without context.
 - Transient Windows cursor feedback while active control-hand tracking is
   available, restored on shutdown.
 - Windows mouse adapter through PyAutoGUI, isolated behind a testable interface.
@@ -88,12 +92,15 @@ Run headless webcam/tracker diagnostics without moving the mouse:
 uv run --extra dev airpilot --camera 0 --diagnose-seconds 5
 ```
 
-Diagnostics JSON includes `camera_reconnects` so unplug/replug recovery can be
-verified without moving the pointer.
+Diagnostics JSON includes `camera_reconnects` and `tracking_error_events` so
+unplug/replug recovery and transient tracker faults can be verified without
+moving the pointer.
 
 Controls:
 
-- `q` or `Esc`: stop AirPilot while the preview window is focused.
+- `q`: stop AirPilot while the preview window is focused.
+- `Esc`: ignored by AirPilot; this avoids Task View/system Esc actions leaking
+  back into the preview and closing the app.
 - `p`: pause/resume while the preview window is focused.
 - `a`: arm/disarm real mouse output while the preview window is focused.
 - `h`: show/hide the separate gesture and action help window.
@@ -154,3 +161,22 @@ powershell -ExecutionPolicy Bypass -File scripts/package_windows.ps1
 The unsigned executable is written under `dist\AirPilot`. Code signing and
 installer polish are not complete yet. If the webcam briefly disconnects,
 AirPilot now retries reopening the same camera index before failing.
+
+## Troubleshooting Unexpected Closes
+
+AirPilot prints one terminal-side shutdown reason on every exit:
+
+- `user_quit_q`
+- `main_window_closed`
+- `camera_unrecoverable`
+- `failsafe`
+- `fatal_exception`
+- `diagnostics_complete`
+- `explicit_shutdown`
+- `unknown`
+
+If AirPilot closes without a manual `q`, copy the exact `AirPilot exit reason:
+...` line and any warning/error above it. The app never logs camera frames.
+
+Repository policy: `main` is the only persistent branch. Temporary branches are
+allowed for focused work, but they should be merged and deleted promptly.
