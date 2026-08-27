@@ -13,6 +13,12 @@ import cv2
 import pyautogui
 from cv2.typing import MatLike
 
+from airpilot.actions import (
+    ActionRouter,
+    action_help_lines,
+    dispatch_action,
+    validate_action_config,
+)
 from airpilot.camera import OpenCVCamera, list_cameras
 from airpilot.config import (
     AppConfig,
@@ -22,6 +28,7 @@ from airpilot.config import (
     save_config,
 )
 from airpilot.cursor_feedback import CursorFeedbackController, create_cursor_feedback
+from airpilot.display import create_display_provider
 from airpilot.domain.cursor import CursorMapper
 from airpilot.domain.gestures import GestureEngine
 from airpilot.domain.types import GestureEvents, TrackingFrame
@@ -122,6 +129,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     persisted_path = default_config_path() if config_path is None else config_path
     stored_schema_version = read_config_schema_version(persisted_path)
     config = load_config(config_path)
+    validate_action_config(config.actions)
     if stored_schema_version != config.schema_version:
         save_config(config, config_path)
 
@@ -159,6 +167,8 @@ def run(
     camera: OpenCVCamera | None = None
     tracker: MediaPipeHandTracker | None = None
     cursor_feedback: CursorFeedbackController | None = None
+    safety: MouseSafetyGate | None = None
+    mouse: MouseController | None = None
     stats = TrackingStats()
     drawing_error: str | None = None
     operator_notice: str | None = None
@@ -175,8 +185,13 @@ def run(
             min_tracking_confidence=config.runtime.tracker_tracking_confidence,
             input_is_mirrored=config.runtime.flip_camera_x,
         )
-        config.cursor.screen_width, config.cursor.screen_height = pyautogui.size()
+        desktop = create_display_provider().virtual_desktop()
+        config.cursor.screen_left = desktop.left
+        config.cursor.screen_top = desktop.top
+        config.cursor.screen_width = desktop.width
+        config.cursor.screen_height = desktop.height
         engine = GestureEngine(config.gestures, CursorMapper(config.cursor))
+        action_router = ActionRouter(config.actions, config.gestures)
         mouse = PyAutoGuiMouseController(
             emergency_corner_failsafe=config.runtime.emergency_corner_failsafe,
         )
@@ -192,9 +207,14 @@ def run(
             image = _prepare_camera_image(camera_frame.image, config)
             frame = tracker.track(image, camera_frame.timestamp_ms)
             events = engine.process(frame)
+            events = action_router.process(frame, events)
             mouse_output_enabled = config.runtime.enable_real_mouse and not mouse_output_locked
             if mouse_output_enabled:
                 safety.apply(mouse, events)
+                if safety.armed and events.action_id is not None:
+                    action_label = dispatch_action(config.actions, mouse, events.action_id)
+                    if action_label is not None:
+                        operator_notice = f"ACTION: {action_label}"
             cursor_feedback.set_control_active(
                 mouse_output_enabled
                 and safety.armed
@@ -255,6 +275,8 @@ def run(
             camera.close()
         if tracker is not None:
             tracker.close()
+        if safety is not None and mouse is not None:
+            safety.disarm(mouse)
         if cursor_feedback is not None:
             cursor_feedback.restore()
         cv2.destroyAllWindows()
@@ -275,6 +297,7 @@ def status_lines(
     hand = frame.hand
     tracking = "hand" if hand is not None else "searching"
     hand_score = f"{hand.confidence:.2f}" if hand is not None else "--"
+    control_hand = hand.handedness.value if hand is not None else "--"
     headline, guidance = _headline_text(
         config=config,
         armed=armed,
@@ -289,10 +312,14 @@ def status_lines(
         guidance,
         (
             f"tracking {tracking} | gesture {events.active_gesture} | "
-            f"hands {hand_count} | hand score {hand_score} | {fps:.1f} fps"
+            f"hands {hand_count} | control {control_hand} | score {hand_score} | {fps:.1f} fps"
         ),
         controls,
     ]
+    if config.runtime.show_gesture_help:
+        lines.extend(action_help_lines(config.actions))
+    if events.action_label is not None:
+        lines.append(f"action {events.action_label}")
     if drawing_error is not None:
         lines.append(f"preview {drawing_error}")
     return lines
@@ -397,6 +424,12 @@ def _handle_keypress(
         if config.runtime.enable_real_mouse and not mouse_output_locked:
             safety.apply(mouse, pause_events)
         return False, "Paused" if pause_events.paused else "Resumed"
+    if command == "h":
+        config.runtime.show_gesture_help = not config.runtime.show_gesture_help
+        return (
+            False,
+            "Gesture help shown" if config.runtime.show_gesture_help else "Gesture help hidden",
+        )
     if command == "a":
         if mouse_output_locked:
             return False, "Mouse output disabled for diagnostics/--no-mouse"
@@ -439,8 +472,8 @@ def _headline_text(
 
 def _controls_text(config: AppConfig, *, mouse_output_locked: bool = False) -> str:
     if mouse_output_locked:
-        return "Controls: P = Pause/Resume | Q = Quit | Click preview for keys"
-    return "Controls: A = Arm/Disarm | P = Pause/Resume | Q = Quit | Click preview for keys"
+        return "Controls: P pause | H help | Q quit | Click preview for keys"
+    return "Controls: A arm | P pause | H help | Q quit | Click preview for keys"
 
 
 @dataclass(frozen=True, slots=True)

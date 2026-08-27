@@ -35,6 +35,7 @@ class GestureEngine:
     _drag_active: bool = False
     _last_left_click_ms: int = -1_000_000
     _last_right_click_ms: int = -1_000_000
+    _last_middle_click_ms: int = -1_000_000
     _last_seen_ms: int | None = None
     _tracking_lost_reported: bool = False
     _scroll_anchor_y: float | None = None
@@ -212,6 +213,17 @@ class GestureEngine:
                 held_ms >= self.config.min_click_hold_ms
                 and timestamp_ms - self._last_right_click_ms >= self.config.click_cooldown_ms
             ):
+                if (
+                    held_ms >= self.config.shortcut_action_hold_ms
+                    and timestamp_ms - self._last_middle_click_ms >= self.config.click_cooldown_ms
+                ):
+                    self._last_middle_click_ms = timestamp_ms
+                    return replace(
+                        events,
+                        middle_click=True,
+                        active_gesture="middle_click",
+                        status="middle_click",
+                    )
                 self._last_right_click_ms = timestamp_ms
                 return replace(
                     events,

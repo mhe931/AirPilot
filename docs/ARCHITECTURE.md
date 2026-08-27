@@ -8,7 +8,10 @@ input so the gesture model can be reused across platforms.
 - `camera`: captures local webcam frames with OpenCV.
 - `tracking`: converts frames into normalized hand landmarks with MediaPipe.
 - `domain`: maps landmarks to cursor positions and gesture events.
-- `input`: applies gesture events to the Windows mouse through PyAutoGUI.
+- `input`: applies gesture events to Windows mouse/keyboard adapters.
+- `display`: reads Windows virtual-desktop geometry for multi-monitor mapping.
+- `actions`: routes deliberate shortcut-mode gestures to semantic action IDs and
+  fakeable keyboard shortcut dispatch.
 - `cursor_feedback`: provides transient Windows cursor-shape feedback while the
   control hand is active, without permanently replacing system cursors.
 - `app`: coordinates runtime, preview UI, status, config, and shutdown.
@@ -16,9 +19,10 @@ input so the gesture model can be reused across platforms.
 ## Event Flow
 
 ```text
-OpenCVCamera -> MediaPipeHandTracker -> GestureEngine -> MouseSafetyGate -> MouseController
-                                      -> CursorFeedbackController
-                                      -> OpenCV status preview
+OpenCVCamera -> MediaPipeHandTracker -> GestureEngine -> ActionRouter -> MouseSafetyGate
+                                                    -> MouseController / shortcut dispatch
+                                                    -> CursorFeedbackController
+                                                    -> OpenCV status preview
 ```
 
 The domain layer uses only plain dataclasses and normalized landmarks. It does
@@ -29,9 +33,9 @@ not import OpenCV, MediaPipe, or PyAutoGUI.
 `TrackingFrame` carries all detected hands plus a `control_hand` alias used by
 the existing gesture engine. MediaPipe is configured for up to two hands. The
 control-hand policy is deterministic: prefer a detected right hand, otherwise a
-left hand, otherwise the first unknown hand. The secondary hand is exposed for
-future keyboard, zoom, modifier, or two-hand chord features but is not yet used
-to emit actions.
+left hand, otherwise the first unknown hand. The secondary hand gates shortcut
+mode by requiring an intentional second-hand thumb-pinky hold before shortcut
+gestures can emit keyboard actions.
 
 ## Gesture Safety
 
@@ -47,6 +51,8 @@ Gestures are explicit states rather than one-frame classifications:
 - `--no-mouse` and diagnostics lock output off for that run; otherwise `A`
   enables/disables output even if a loaded config had mouse output disabled.
 - Conflicting new pinches are canceled rather than emitted as combined actions.
+- Shortcut actions run only through configured semantic action IDs, use cooldowns,
+  require shortcut mode, and skip risky actions unless explicitly enabled.
 
 ## Runtime Defaults
 
@@ -54,15 +60,32 @@ Default gestures:
 
 - Thumb-index: left click on short release, drag on hold.
 - Thumb-middle: right click.
+- Thumb-middle hold: middle click.
 - Thumb-ring: scroll mode.
 - Thumb-pinky: pause/resume hold.
+- Second-hand thumb-pinky hold: shortcut mode; configured shortcut gestures emit
+  enabled catalog actions such as copy, paste, switch app, and slide navigation.
 
 Default cursor behavior:
 
 - Actual-orientation preview by default; no selfie mirror is applied by default.
-- Pointer mapping follows the displayed camera orientation.
+- Pointer mapping uses an operator-facing convention: moving the physical hand
+  right maps to increasing Windows desktop X, and moving down maps to increasing
+  Y. Because an actual-orientation preview is camera-facing, the mapper mirrors X
+  by default for intuitive pointer motion while leaving the preview unflipped.
+- Runtime display geometry comes from Win32 virtual-screen metrics, so the mapper
+  targets absolute virtual-desktop coordinates including negative origins.
 - Camera bounds crop the active control region.
 - Smoothing and dead zone reduce jitter.
+
+## Action Catalog
+
+`ActionConfig.catalog` stores semantic IDs, labels, profiles, key chords,
+enabled state, and risky-action flags. The initial catalog covers high-value
+Windows, editing, browser, presentation, and media shortcuts. Safe actions such
+as copy, paste, switch app, and slide navigation are enabled by default; higher
+impact actions such as lock workstation, close window, desktop switching, and
+tab close are present but disabled and/or risky by default.
 
 ## Failure Handling
 
@@ -77,6 +100,8 @@ Default cursor behavior:
   not intentionally persist after quit, errors, or camera failure.
 - Tracking loss reports status and resets cursor smoothing.
 - PyAutoGUI corner failsafe is enabled by default.
+- Automated tests use recording adapters and never move the real pointer, change
+  the real cursor, send hotkeys, lock Windows, close windows, or switch desktops.
 
 ## Future Android Reuse
 

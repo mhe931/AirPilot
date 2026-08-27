@@ -2,7 +2,7 @@
 
 AirPilot is a privacy-first, camera-based gesture controller. Phase 1 is a
 Windows desktop app that turns webcam hand landmarks into mouse movement,
-clicks, dragging, scrolling, and pause/resume commands.
+clicks, dragging, scrolling, pause/resume, and deliberate shortcut commands.
 
 Frames are processed locally. AirPilot does not record or upload camera frames.
 
@@ -17,8 +17,9 @@ Implemented:
 - Safe-by-default arming gate so real mouse control does not start until the
   user presses `a` or passes `--armed`.
 - Smooth cursor mapping with calibration bounds, sensitivity, smoothing, and
-  dead zone.
-- Default actual-orientation preview with matching pointer mapping.
+  dead zone across the Windows virtual desktop.
+- Default actual-orientation preview with operator-facing pointer mapping:
+  moving your hand right moves the Windows pointer right.
 - Two-hand tracking model with a right-hand-preferred control hand and secondary
   hand reserved for future interactions.
 - Prominent preview banner for DISARMED, ACTIVE, PAUSED, and preview-only modes.
@@ -26,6 +27,9 @@ Implemented:
 - Transient Windows cursor feedback while active control-hand tracking is
   available, restored on shutdown.
 - Windows mouse adapter through PyAutoGUI, isolated behind a testable interface.
+- Win32 virtual-desktop geometry and pointer movement so multi-monitor layouts,
+  including monitors left or above the primary display, can be addressed.
+- Configurable shortcut action catalog with safe default two-hand shortcut mode.
 - Config persistence under `%APPDATA%\AirPilot\config.json`.
 - Synthetic landmark tests that do not require a webcam or desktop automation.
 - Preview landmark drawing is compatible with the pinned MediaPipe package and
@@ -87,6 +91,7 @@ Controls:
 - `q` or `Esc`: stop AirPilot while the preview window is focused.
 - `p`: pause/resume while the preview window is focused.
 - `a`: arm/disarm real mouse output while the preview window is focused.
+- `h`: show/hide the compact gesture and action help in the preview.
 - Move the real pointer to a screen corner to trigger PyAutoGUI's failsafe.
 
 If your webcam feed is already non-mirrored at the driver level, you can change
@@ -97,8 +102,13 @@ Default gestures:
 - Thumb + index pinch, then release: left click.
 - Thumb + index pinch and hold: drag; release to drop.
 - Thumb + middle pinch, then release: right click.
+- Thumb + middle pinch and hold, then release: middle click.
 - Thumb + ring pinch while moving vertically: scroll.
 - Thumb + pinky hold: pause/resume.
+- Shortcut mode: hold thumb + pinky on the second hand, then use configured
+  control-hand shortcut gestures. Defaults include copy, paste, switch app, next
+  slide, and previous slide. Risky actions such as lock workstation and close
+  window are disabled by default.
 
 ## Validate
 

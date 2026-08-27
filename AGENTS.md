@@ -18,6 +18,8 @@ Android must remain documentation-only until explicitly requested.
 - Main is not branch-protected as of 2026-08-26.
 - PR #3 merged camera reconnect hardening into `main`.
 - PR #4 merged the MediaPipe preview-drawing compatibility fix into `main`.
+- PR #5 merged orientation/arming UX into `main`.
+- PR #6 merged Windows live interaction UX into `main`.
 
 ## Architecture Paths
 
@@ -25,6 +27,8 @@ Android must remain documentation-only until explicitly requested.
 - `src/airpilot/camera.py`: OpenCV camera adapter.
 - `src/airpilot/tracking.py`: MediaPipe hand-tracking adapter.
 - `src/airpilot/input.py`: Windows mouse adapter and fake controller.
+- `src/airpilot/display.py`: Windows virtual-desktop geometry adapter.
+- `src/airpilot/actions.py`: configurable shortcut/action routing.
 - `src/airpilot/safety.py`: safe/armed mouse-output gate.
 - `src/airpilot/app.py`: desktop runtime loop and preview UI.
 - `tests/`: synthetic landmark and fake-input tests.
@@ -65,7 +69,7 @@ powershell -ExecutionPolicy Bypass -File scripts/package_windows.ps1
 - Explicit gesture state machine with cooldowns, hysteresis, click hold
   thresholds, drag state, scroll state, pause state, and tracking-loss handling.
 - Cursor mapper with calibration, mirroring, smoothing, sensitivity, and
-  dead-zone behavior.
+- dead-zone behavior over Windows virtual-desktop coordinates.
 - Config persistence with schema versioning.
 - Tests for gestures, mapping, tracking loss/recovery, config, and fake input.
 - Safe/armed gate, richer status overlay, headless diagnostics, camera backend
@@ -91,15 +95,20 @@ powershell -ExecutionPolicy Bypass -File scripts/package_windows.ps1
 - Headless webcam diagnostics open Camera 0 through DirectShow and process
   aggregate tracker stats without moving the pointer or saving frames, including
   camera reconnect counts.
+- Physical rightward pointer direction is corrected by keeping actual-orientation
+  preview while mirroring normalized X for operator-facing pointer motion.
+- Initial shortcut/action catalog and two-hand shortcut mode are implemented with
+  risky shortcuts disabled by default.
+- Middle click is available via a deliberate thumb-middle hold/release.
+- The preview can show compact gesture/action help with `H`.
 
 ## Known Issues
 
-- Manual hand acquisition and real pointer gesture validation are still required
-  with a hand physically presented to the laptop webcam.
+- Manual validation is still required for the new direction, multi-monitor,
+  gesture help, middle-click, and shortcut action behavior.
 - Packaged executable is unsigned.
 - Camera unplug/replug recovery now retries reopening the same camera index, but
   recovery still depends on Windows presenting the device again on that index.
-- Two-hand tracking and active cursor icon behavior still need manual validation.
 - Multi-monitor DPI behavior has not been manually validated.
 - Global hotkey/tray emergency stop is not implemented; current stop controls
   are preview-window keys and PyAutoGUI corner failsafe.
@@ -113,15 +122,14 @@ powershell -ExecutionPolicy Bypass -File scripts/package_windows.ps1
 - `airpilot --camera 0 --diagnose-seconds 5` starts camera/tracker without
   moving the mouse.
 - `airpilot --camera 0 --no-mouse` shows tracking without mouse movement.
-- Real mouse mode supports move, left/right click, drag/drop, scroll,
-  pause/resume, and failsafe stop.
+- Real mouse mode supports move, left/right/middle click, drag/drop, scroll,
+  pause/resume, shortcut actions, and failsafe stop.
 - Docs match the implementation.
 
 ## Next Task
 
-Run the short interactive validation checklist with a hand in front of the
-laptop webcam now that preview drawing, default orientation, arming UX, cursor
-feedback, and two-hand tracking are wired, then tune gesture defaults from
+Run the compact live validation checklist for direction, monitors, gesture help,
+scroll, middle click, and safe shortcut actions; then tune gesture defaults from
 observed behavior.
 
 ## Decisions Not To Silently Reverse

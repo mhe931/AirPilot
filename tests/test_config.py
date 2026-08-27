@@ -16,7 +16,7 @@ def test_config_round_trip(tmp_path: Path) -> None:
     save_config(config, path)
     loaded = load_config(path)
 
-    assert loaded.schema_version == 3
+    assert loaded.schema_version == 4
     assert loaded.cursor.sensitivity == 1.4
     assert loaded.runtime.camera_index == 2
 
@@ -51,8 +51,8 @@ def test_v1_config_migrates_legacy_mirrored_cursor_default(tmp_path: Path) -> No
 
     loaded = load_config(path)
 
-    assert loaded.schema_version == 3
-    assert loaded.cursor.mirror_x is False
+    assert loaded.schema_version == 4
+    assert loaded.cursor.mirror_x is True
     assert loaded.cursor.sensitivity == 1.2
     assert loaded.runtime.camera_index == 1
 
@@ -73,9 +73,9 @@ def test_v1_config_preserves_equivalent_horizontal_behavior_when_unmirrored(
 
     loaded = load_config(path)
 
-    assert loaded.schema_version == 3
+    assert loaded.schema_version == 4
     assert loaded.runtime.flip_camera_x is False
-    assert loaded.cursor.mirror_x is False
+    assert loaded.cursor.mirror_x is True
 
 
 def test_v2_config_migrates_to_actual_camera_orientation(tmp_path: Path) -> None:
@@ -93,13 +93,35 @@ def test_v2_config_migrates_to_actual_camera_orientation(tmp_path: Path) -> None
 
     loaded = load_config(path)
 
-    assert loaded.schema_version == 3
+    assert loaded.schema_version == 4
     assert loaded.runtime.flip_camera_x is False
-    assert loaded.cursor.mirror_x is False
+    assert loaded.cursor.mirror_x is True
+
+
+def test_v3_config_migrates_to_actual_orientation_and_operator_direction(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "config.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 3,
+                "cursor": {"mirror_x": False},
+                "runtime": {"flip_camera_x": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_config(path)
+
+    assert loaded.schema_version == 4
+    assert loaded.runtime.flip_camera_x is False
+    assert loaded.cursor.mirror_x is True
 
 
 def test_default_config_file_matches_dataclass_defaults() -> None:
     defaults_path = Path(__file__).resolve().parents[1] / "config" / "defaults.json"
     raw = json.loads(defaults_path.read_text(encoding="utf-8"))
 
-    assert raw == asdict(AppConfig())
+    assert raw == json.loads(json.dumps(asdict(AppConfig())))

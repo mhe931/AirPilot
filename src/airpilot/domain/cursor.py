@@ -28,8 +28,8 @@ class CursorMapper:
         if self.config.mirror_x:
             normalized_x = 1.0 - normalized_x
 
-        x = int(round(normalized_x * (self.config.screen_width - 1)))
-        y = int(round(normalized_y * (self.config.screen_height - 1)))
+        x = int(round(self.config.screen_left + normalized_x * (self.config.screen_width - 1)))
+        y = int(round(self.config.screen_top + normalized_y * (self.config.screen_height - 1)))
         mapped = CursorPosition(x=x, y=y)
 
         if self._last is None:
@@ -51,8 +51,20 @@ class CursorMapper:
 
     def _clamp_position(self, position: CursorPosition) -> CursorPosition:
         return CursorPosition(
-            x=int(self._clamp(position.x, 0, self.config.screen_width - 1)),
-            y=int(self._clamp(position.y, 0, self.config.screen_height - 1)),
+            x=int(
+                self._clamp(
+                    position.x,
+                    self.config.screen_left,
+                    self.config.screen_left + self.config.screen_width - 1,
+                )
+            ),
+            y=int(
+                self._clamp(
+                    position.y,
+                    self.config.screen_top,
+                    self.config.screen_top + self.config.screen_height - 1,
+                )
+            ),
         )
 
     @staticmethod

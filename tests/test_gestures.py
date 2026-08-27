@@ -125,6 +125,16 @@ def test_right_click_uses_middle_finger_pinch() -> None:
     assert sut.process(frame(120)).right_click
 
 
+def test_middle_click_uses_held_middle_finger_pinch() -> None:
+    sut = engine()
+
+    assert not sut.process(frame(0, middle=(0.51, 0.50))).middle_click
+    middle_click = sut.process(frame(750))
+
+    assert middle_click.middle_click
+    assert middle_click.active_gesture == "middle_click"
+
+
 def test_scrolling_suppresses_pointer_move() -> None:
     sut = engine()
 

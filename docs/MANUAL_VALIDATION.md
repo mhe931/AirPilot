@@ -48,6 +48,10 @@ Pass:
   pointer.
 - Preview orientation matches the actual camera view, not selfie mirroring.
 - Press `a`; overlay changes prominently to `AIRPILOT - ACTIVE`.
+- Press `h`; the compact gesture/action help appears or disappears without text
+  clipping.
+- Move your hand right; the Windows pointer moves right. Move left/up/down; the
+  pointer follows the same physical direction.
 - Cursor reaches all four quadrants without leaving the control region.
 - While active and tracking a usable hand, Windows cursor feedback changes to a
   hand/pointer-style cursor where supported; it restores on hand loss, disarm,
@@ -55,6 +59,8 @@ Pass:
 - With five thumb-index pinch/releases, exactly five left clicks occur.
 - Holding thumb-index starts drag; pressing `p` or removing the hand releases it.
 - With five thumb-middle pinch/releases, exactly five right clicks occur.
+- With five deliberate thumb-middle hold/releases, exactly five middle clicks
+  occur.
 - Thumb-ring vertical movement scrolls only while the overlay says `scrolling`.
 - Thumb-pinky hold pauses and resumes without firing clicks.
 - Ambiguous multi-pinch shapes show conflict/cancel behavior, not combined
@@ -74,6 +80,21 @@ Pass:
 - Two visible hands show `hands 2`.
 - The control hand remains stable when hand ordering changes; current policy
   prefers a reliably classified right hand.
+- Holding thumb-pinky on the second hand enters shortcut mode and suppresses
+  normal mouse click/scroll output.
+
+## Shortcut Actions
+
+Do not start with risky shortcuts such as lock workstation or close window.
+First validate safe actions:
+
+- In a text field, select text manually, enter shortcut mode, perform the default
+  copy gesture, and verify copy works.
+- Enter shortcut mode and perform the default paste gesture; verify paste works.
+- Enter shortcut mode and perform switch-app only when changing windows is safe.
+- In a presentation or compatible viewer, enter shortcut mode and verify next
+  slide and previous slide.
+- Verify the overlay briefly shows `ACTION: ...` when an action fires.
 
 ## Edge Cases
 
@@ -87,6 +108,8 @@ Verify and record:
 - Camera already in use by another app.
 - Sleep/wake.
 - Multi-monitor layout.
+- Pointer can cross monitor boundaries. If a monitor is left or above the primary
+  monitor, validate that movement reaches that negative-coordinate display.
 - Display scaling above 100%.
 - Elevated/UAC windows.
 

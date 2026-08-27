@@ -65,9 +65,13 @@ class GestureEvents:
     move: CursorPosition | None = None
     left_click: bool = False
     right_click: bool = False
+    middle_click: bool = False
     drag_start: bool = False
     drag_end: bool = False
     scroll: int = 0
+    action_id: str | None = None
+    action_label: str | None = None
+    shortcut_mode: bool = False
     paused_changed: bool = False
     paused: bool = False
     tracking_lost: bool = False
