@@ -479,118 +479,293 @@ def validate_action_config(actions: ActionConfig) -> None:
 
 
 def action_help_lines(actions: ActionConfig, *, max_actions: int | None = None) -> list[str]:
-    lines = [
+    lines: list[str] = []
+    _extend_help_group(
+        lines,
         "QUICK START",
-        "1. Arm: hold second-hand thumb + middle, or press A.",
-        "2. Point: keep the control-hand thumb open and move your index fingertip.",
-        "3. Clutch: close/bend the thumb to freeze the pointer.",
-        "4. Click/drag: while clutched, bend index; hold and move to drag.",
-        "5. Task View: hold Shortcut Mode, hold thumb + index, move left/right, release.",
-        "",
-        "STATUS CARDS",
-        "Disarmed | Safe startup | Hold arm gesture or press A",
-        "Active | Mouse output enabled | Emergency: corner failsafe or Q",
-        "Shortcut Mode | Second-hand thumb + pinky | Suppresses mouse output",
-        "Task View | Win+Tab app picker | Left/right selects, release opens",
-        "",
-        "PHILOSOPHY",
-        "- Frequent actions use easy one-hand gestures.",
-        "- Commands use deliberate two-hand Shortcut Mode.",
-        "- Risky/system actions stay disabled unless explicitly enabled.",
-        "- Continuous actions, such as scroll, stay active only while held.",
-        "",
-        "CORE MOUSE GESTURES",
-        "Thumb open + move index | Move pointer | Continuous",
-        "Thumb closed/bent | Clutch/freeze pointer | Enables click poses",
-        "Clutch + index bend/release | Left click | Primary click",
-        "Clutch + index hold + move | Drag/drop | Release to drop",
-        "Clutch + middle bend/release | Right click | Context menu",
-        "Clutch + middle long hold | Middle click | Consumes right click",
-        "Thumb + ring pinch + vertical hand movement | Scroll wheel | Move hand up/down",
-        "Open / neutral hand | Normal pointer state | Release active holds",
-        "",
+        [
+            _dictionary_row(
+                "Arm safely",
+                "Press A or hold second-hand thumb/middle",
+                "A",
+                "disarmed default",
+            ),
+            _dictionary_row(
+                "Move pointer",
+                "Thumb open; move palm/knuckle hand anchor",
+                "--",
+                "enabled",
+            ),
+            _dictionary_row(
+                "Click accurately",
+                "Thumb closed; bend/release index",
+                "--",
+                "enabled",
+            ),
+            _dictionary_row(
+                "Switch apps",
+                "Shortcut Mode + hold thumb/index; move left/right; release",
+                "Win+Tab, Left/Right, Enter",
+                _action_state(actions, "system.task_view"),
+            ),
+            _dictionary_row(
+                "Quit AirPilot",
+                "Press Q in the preview window",
+                "Q",
+                "enabled",
+            ),
+        ],
+    )
+    _extend_help_group(
+        lines,
+        "MOUSE",
+        [
+            _dictionary_row(
+                "Move pointer",
+                "Thumb open; move the palm/knuckle anchor",
+                "--",
+                "enabled",
+            ),
+            _dictionary_row(
+                "Freeze pointer / clutch",
+                "Close or bend thumb",
+                "--",
+                "enabled",
+            ),
+            _dictionary_row(
+                "Left click",
+                "While clutched, bend/release index",
+                "--",
+                "enabled",
+            ),
+            _dictionary_row(
+                "Drag and drop",
+                "While clutched, hold bent index and move hand; release to drop",
+                "--",
+                "enabled",
+            ),
+            _dictionary_row(
+                "Right click",
+                "While clutched, bend/release middle",
+                "--",
+                "enabled",
+            ),
+            _dictionary_row(
+                "Middle click",
+                "While clutched, hold middle bend, then release",
+                "--",
+                "enabled",
+            ),
+            _dictionary_row(
+                "Scroll",
+                "Thumb/ring pinch; move hand up or down",
+                "--",
+                "enabled",
+            ),
+        ],
+    )
+    _extend_help_group(
+        lines,
         "CONTROL",
-        "A | Arm/disarm mouse output",
-        "Arm gesture | Hold second-hand thumb + middle",
-        "P | Pause/resume",
-        "H | Toggle this Help window",
-        "Q | Quit",
-        "Help gesture | Hold second-hand thumb + index",
-        "Shortcut Mode | Hold second-hand thumb + pinky",
-    ]
+        [
+            _dictionary_row("Arm/disarm mouse output", "Press A", "A", "enabled"),
+            _dictionary_row(
+                "Arm without keyboard",
+                "Hold second-hand thumb/middle",
+                "--",
+                _action_state(actions, "ui.arm"),
+            ),
+            _dictionary_row("Pause/resume gestures", "Press P", "P", "enabled"),
+            _dictionary_row(
+                "Toggle Help",
+                "Press H or hold second-hand thumb/index",
+                "H",
+                _action_state(actions, "ui.toggle_help"),
+            ),
+            _dictionary_row(
+                "Emergency stop",
+                "Move pointer into a screen corner",
+                "PyAutoGUI failsafe",
+                "enabled",
+            ),
+            _dictionary_row("Quit AirPilot", "Press Q", "Q", "enabled"),
+            _dictionary_row("Esc key", "Ignored by AirPilot preview", "Esc", "safe no-op"),
+        ],
+    )
     if actions.enabled:
-        lines.extend(["", "SHORTCUT MODE", "Enter: hold second-hand thumb + pinky."])
+        shortcut_rows = [
+            _dictionary_row(
+                "Enter Shortcut Mode",
+                "Hold second-hand thumb/pinky",
+                "--",
+                "enabled",
+            )
+        ]
         mappings = _shortcut_mapping_lines(actions)
-        lines.extend(mappings if max_actions is None else mappings[:max_actions])
-    lines.extend(["", "AVAILABLE SHORTCUT ACTIONS"])
-    lines.extend(_catalog_lines(actions))
+        shortcut_rows.extend(mappings if max_actions is None else mappings[:max_actions])
+        _extend_help_group(lines, "SHORTCUT MODE", shortcut_rows)
+    _extend_help_group(
+        lines,
+        "WINDOWS/APPS",
+        _catalog_lines(actions, profiles=("editing", "windows"), include_other=True),
+    )
+    _extend_help_group(lines, "BROWSER", _catalog_lines(actions, profiles=("browser",)))
+    _extend_help_group(
+        lines,
+        "PRESENTATION",
+        _catalog_lines(actions, profiles=("presentation",)),
+    )
+    _extend_help_group(lines, "MEDIA", _catalog_lines(actions, profiles=("media",)))
     risky = _risky_lines(actions)
     if risky:
-        lines.extend(["", "RISKY ACTIONS", *risky])
+        _extend_help_group(lines, "RISKY", risky)
     return lines
+
+
+def _extend_help_group(lines: list[str], title: str, rows: list[str]) -> None:
+    if not rows:
+        return
+    if lines:
+        lines.append("")
+    lines.extend([title, "What it does | Gesture | Shortcut/Keys | State", *rows])
+
+
+def _dictionary_row(what: str, gesture: str, keys: str, state: str) -> str:
+    return f"{what} | {gesture} | {keys} | {state}"
 
 
 def _shortcut_mapping_lines(actions: ActionConfig) -> list[str]:
     lines: list[str] = []
     for gesture, action_id in actions.gesture_actions.items():
-        if action_id == "ui.toggle_help":
+        if action_id in {"ui.arm", "ui.toggle_help"}:
             continue
         entry = actions.catalog.get(action_id)
         if entry is None:
             continue
-        state = "enabled" if entry.enabled else "disabled"
         lines.append(
-            f"{_gesture_label(gesture)} | {entry.label} | {_format_keys(entry.keys)} | {state}"
+            _dictionary_row(
+                entry.label,
+                _gesture_label(gesture),
+                _format_keys(entry.keys),
+                _entry_state(actions, entry),
+            )
         )
     return lines
 
 
-def _catalog_lines(actions: ActionConfig) -> list[str]:
-    profile_labels = {
-        "editing": "Clipboard / Editing",
-        "windows": "Windows / System",
-        "browser": "Browser",
-        "presentation": "Presentation",
-        "media": "Media",
-        "ui": "UI",
-    }
-    by_profile: dict[str, list[str]] = {}
-    for entry in actions.catalog.values():
-        if entry.profile == "ui":
-            continue
-        state = "enabled" if entry.enabled else "available"
-        if entry.risky and (not entry.enabled or not actions.risky_actions_enabled):
-            state = "risky disabled"
-        by_profile.setdefault(entry.profile, []).append(
-            f"- {entry.label} `{_format_keys(entry.keys)}` ({state})"
+def _catalog_lines(
+    actions: ActionConfig,
+    *,
+    profiles: tuple[str, ...],
+    include_other: bool = False,
+) -> list[str]:
+    grouped_elsewhere = {"browser", "media", "presentation", "ui"}
+    entries = [
+        (action_id, entry)
+        for action_id, entry in actions.catalog.items()
+        if (entry.profile in profiles or (include_other and entry.profile not in grouped_elsewhere))
+        and not entry.risky
+    ]
+    entries.sort(key=lambda item: (_ACTION_PRIORITY.get(item[0], 10_000), item[1].label))
+    return [
+        _dictionary_row(
+            entry.label,
+            _action_gesture(action_id, actions),
+            _format_keys(entry.keys),
+            _entry_state(actions, entry),
         )
-
-    lines: list[str] = []
-    known_profiles = ("editing", "windows", "browser", "presentation", "media")
-    for profile in known_profiles:
-        entries = by_profile.get(profile)
-        if not entries:
-            continue
-        lines.append(profile_labels.get(profile, profile.title()))
-        lines.extend(entries)
-    for profile in sorted(key for key in by_profile if key not in known_profiles):
-        entries = by_profile[profile]
-        lines.append(profile_labels.get(profile, profile.title()))
-        lines.extend(entries)
-    return lines
+        for action_id, entry in entries
+    ]
 
 
 def _risky_lines(actions: ActionConfig) -> list[str]:
     lines: list[str] = []
-    for entry in actions.catalog.values():
-        if entry.risky:
-            state = (
-                "enabled"
-                if entry.enabled and actions.risky_actions_enabled
-                else "disabled by default"
+    entries = [(action_id, entry) for action_id, entry in actions.catalog.items() if entry.risky]
+    entries.sort(key=lambda item: (_ACTION_PRIORITY.get(item[0], 10_000), item[1].label))
+    for action_id, entry in entries:
+        lines.append(
+            _dictionary_row(
+                entry.label,
+                _action_gesture(action_id, actions),
+                _format_keys(entry.keys),
+                _entry_state(actions, entry),
             )
-            lines.append(f"- {entry.label} `{_format_keys(entry.keys)}` - {state}")
+        )
     return lines
+
+
+_ACTION_PRIORITY = {
+    "clipboard.copy": 10,
+    "clipboard.paste": 20,
+    "clipboard.history": 30,
+    "system.task_view": 40,
+    "task_view.next": 50,
+    "task_view.previous": 60,
+    "task_view.confirm": 70,
+    "task_view.cancel": 80,
+    "window.switch": 90,
+    "system.show_desktop": 100,
+    "system.explorer": 110,
+    "system.search": 120,
+    "system.settings": 130,
+    "window.minimize": 140,
+    "window.maximize": 150,
+    "window.snap_left": 160,
+    "window.snap_right": 170,
+    "desktop.next": 180,
+    "desktop.previous": 190,
+    "browser.back": 200,
+    "browser.forward": 210,
+    "browser.refresh": 220,
+    "browser.new_tab": 230,
+    "browser.next_tab": 240,
+    "browser.previous_tab": 250,
+    "browser.reopen_tab": 260,
+    "presentation.next_slide": 300,
+    "presentation.previous_slide": 310,
+    "presentation.start": 320,
+    "presentation.exit": 330,
+    "media.play_pause": 400,
+    "media.volume_up": 410,
+    "media.volume_down": 420,
+    "media.mute": 430,
+    "media.next": 440,
+    "media.previous": 450,
+    "browser.close_tab": 900,
+    "window.close": 910,
+    "system.lock": 920,
+}
+
+
+def _entry_state(actions: ActionConfig, entry: ShortcutConfig) -> str:
+    if entry.risky:
+        if entry.enabled and actions.risky_actions_enabled:
+            return "risky enabled"
+        return "risky off"
+    return "enabled" if entry.enabled else "available"
+
+
+def _action_state(actions: ActionConfig, action_id: str) -> str:
+    entry = actions.catalog.get(action_id)
+    if entry is None:
+        return "unavailable"
+    return _entry_state(actions, entry)
+
+
+def _action_gesture(action_id: str, actions: ActionConfig) -> str:
+    special = {
+        "system.task_view": "Shortcut Mode + hold thumb/index",
+        "task_view.next": "Task View open; move hand right",
+        "task_view.previous": "Task View open; move hand left",
+        "task_view.confirm": "Release Task View gesture",
+        "task_view.cancel": "Release Shortcut Mode or press Esc",
+    }
+    if action_id in special:
+        return special[action_id]
+    for gesture, mapped_action_id in actions.gesture_actions.items():
+        if mapped_action_id == action_id:
+            return _gesture_label(gesture)
+    return "Configure in action catalog"
 
 
 def _format_keys(keys: tuple[str, ...]) -> str:
@@ -605,6 +780,12 @@ def _format_keys(keys: tuple[str, ...]) -> str:
         "down": "Down",
         "tab": "Tab",
         "esc": "Esc",
+        "playpause": "Play/Pause",
+        "volumeup": "Volume Up",
+        "volumedown": "Volume Down",
+        "volumemute": "Volume Mute",
+        "nexttrack": "Next Track",
+        "prevtrack": "Previous Track",
     }
     return "+".join(labels.get(key, key.upper() if len(key) == 1 else key.title()) for key in keys)
 

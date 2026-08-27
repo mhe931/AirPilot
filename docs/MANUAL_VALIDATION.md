@@ -55,10 +55,10 @@ Pass:
   changes to `AIRPILOT - ACTIVE`. Restart and also verify pressing `a` still
   arms/disarms.
 - Press `h`; a separate gesture/action help window opens or closes without
-  blocking camera processing or clipping text. It should read like a glanceable
-  dashboard with quick start, status cards, core mouse gestures, controls,
-  shortcut-mode mappings, available shortcut actions, Task View, Clipboard
-  History, and risky-action notes.
+  blocking camera processing or clipping text. It should read like an
+  action-first dictionary with `What it does | Gesture | Shortcut/Keys | State`
+  rows grouped as Quick Start, Mouse, Control, Shortcut Mode, Windows/Apps,
+  Browser, Presentation, Media, and Risky.
 - Hold thumb-index on the second hand; the same help window toggles only after a
   deliberate hold.
 - Move your hand right; the Windows pointer moves right. Move left/up/down; the
@@ -68,7 +68,9 @@ Pass:
   slow or jumpy.
 - Windows cursor icon does not change globally while AirPilot is active; status
   feedback stays in the preview and help UI.
-- Open the control-hand thumb; the pointer follows index movement.
+- Open the control-hand thumb; the pointer follows a stable palm/knuckle hand
+  anchor. Bend and release index/middle without otherwise moving your hand; the
+  pointer should not drift significantly.
 - Close/bend the thumb; the overlay reports clutch/freeze and moving the hand no
   longer moves the pointer until the thumb opens again.
 - While clutched, with five index bend/releases, exactly five left clicks occur

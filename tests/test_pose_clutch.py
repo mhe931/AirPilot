@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from math import hypot
+
 from airpilot.config import CursorConfig, GestureConfig
 from airpilot.domain.cursor import CursorMapper
 from airpilot.domain.gestures import GestureEngine
 from airpilot.domain.pose import estimate_hand_pose
-from airpilot.domain.types import HandLandmarks, Landmark, TrackingFrame
+from airpilot.domain.types import CursorPosition, HandLandmarks, Landmark, TrackingFrame
 
 
 def test_pose_detects_thumb_and_finger_states_without_touching() -> None:
@@ -37,22 +39,76 @@ def test_pose_is_scale_invariant() -> None:
     assert large_pose.index_bent
 
 
+def test_pointer_reference_ignores_index_bending() -> None:
+    sut = engine()
+
+    neutral = sut.process(frame(0, pose_hand()))
+    bent = sut.process(frame(100, pose_hand(index_bent=True, index_tip=(0.86, 0.86))))
+    hand_moved = sut.process(
+        frame(200, pose_hand(index_bent=True, index_tip=(0.86, 0.86), offset=(0.24, 0.0)))
+    )
+
+    assert neutral.move is not None
+    assert bent.move is not None
+    assert _cursor_distance(neutral.move, bent.move) <= 1.0
+    assert hand_moved.move is not None
+    assert hand_moved.move.x > neutral.move.x + 30
+
+
+def test_pointer_reference_ignores_middle_bending() -> None:
+    sut = engine()
+
+    neutral = sut.process(frame(0, pose_hand()))
+    bent = sut.process(frame(100, pose_hand(middle_bent=True)))
+    hand_moved = sut.process(frame(200, pose_hand(middle_bent=True, offset=(0.0, 0.24))))
+
+    assert neutral.move is not None
+    assert bent.move is not None
+    assert _cursor_distance(neutral.move, bent.move) <= 1.0
+    assert hand_moved.move is not None
+    assert hand_moved.move.y > neutral.move.y + 20
+
+
 def test_thumb_clutch_freezes_and_releases_pointer_without_jump() -> None:
     sut = engine()
 
-    moving = sut.process(frame(0, pose_hand(index_tip=(0.36, 0.22))))
-    clutch = sut.process(frame(100, pose_hand(thumb_closed=True, index_tip=(0.36, 0.22))))
-    moved_while_closed = sut.process(
-        frame(200, pose_hand(thumb_closed=True, index_tip=(0.70, 0.22)))
-    )
-    resumed = sut.process(frame(300, pose_hand(index_tip=(0.70, 0.22))))
+    moving = sut.process(frame(0, pose_hand()))
+    clutch = sut.process(frame(100, pose_hand(thumb_closed=True)))
+    moved_while_closed = sut.process(frame(200, pose_hand(thumb_closed=True, offset=(0.30, 0.0))))
+    released = sut.process(frame(300, pose_hand(offset=(0.30, 0.0))))
+    resumed_stationary = sut.process(frame(400, pose_hand(offset=(0.30, 0.0))))
+    resumed_nudged = sut.process(frame(500, pose_hand(offset=(0.33, 0.0))))
 
     assert moving.move is not None
     assert clutch.active_gesture == "clutch"
     assert clutch.move == moving.move
     assert moved_while_closed.move == moving.move
-    assert resumed.move is not None
-    assert resumed.move.x > moving.move.x
+    assert released.move == moving.move
+    assert resumed_stationary.move == moving.move
+    assert resumed_nudged.move is not None
+    assert 0 < resumed_nudged.move.x - moving.move.x <= 8
+
+
+def test_post_clutch_resume_jump_is_bounded_after_large_hand_translation() -> None:
+    sut = GestureEngine(GestureConfig(), CursorMapper(CursorConfig()))
+
+    moving = sut.process(frame(0, pose_hand()))
+    sut.process(frame(100, pose_hand(thumb_closed=True)))
+    moved_while_closed = sut.process(frame(200, pose_hand(thumb_closed=True, offset=(0.30, 0.0))))
+    released = sut.process(frame(300, pose_hand(offset=(0.30, 0.0))))
+    resumed_stationary = sut.process(frame(400, pose_hand(offset=(0.30, 0.0))))
+    resumed_nudged = sut.process(frame(500, pose_hand(offset=(0.32, 0.0))))
+
+    assert moving.move is not None
+    assert moved_while_closed.move == moving.move
+    assert released.move == moving.move
+    assert resumed_stationary.move is not None
+    assert (
+        _cursor_distance(released.move, resumed_stationary.move)
+        <= sut.config.click_freeze_radius_px
+    )
+    assert resumed_nudged.move is not None
+    assert 0 < _cursor_distance(resumed_stationary.move, resumed_nudged.move) <= 80
 
 
 def test_clutch_index_bend_clicks_once_at_frozen_location() -> None:
@@ -182,3 +238,7 @@ def pose_hand(
             center[1] + (y - center[1]) * scale + offset[1],
         )
     return HandLandmarks(tuple(points))
+
+
+def _cursor_distance(first: CursorPosition, second: CursorPosition) -> float:
+    return hypot(first.x - second.x, first.y - second.y)

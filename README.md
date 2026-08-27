@@ -35,9 +35,9 @@ Implemented:
 - Win32 virtual-desktop geometry and pointer movement so multi-monitor layouts,
   including monitors left or above the primary display, can be addressed.
 - Configurable shortcut action catalog with safe default two-hand shortcut mode.
-- Separate glanceable help dashboard, opened by `h` or a deliberate two-hand
-  help gesture, with quick-start cards, gesture tables, shortcut mappings, and
-  safety reference content.
+- Separate action-first help dictionary, opened by `h` or a deliberate two-hand
+  help gesture, with quick-start rows, mouse/control gestures, shortcut mappings,
+  grouped action shortcuts, and safety reference content.
 - Config persistence under `%APPDATA%\AirPilot\config.json`.
 - Synthetic landmark tests that do not require a webcam or desktop automation.
 - Preview landmark drawing is compatible with the pinned MediaPipe package and
@@ -112,7 +112,8 @@ If your webcam feed is already non-mirrored at the driver level, you can change
 Default gestures:
 
 - Second-hand thumb + middle hold: arm AirPilot from the disarmed startup state.
-- Thumb open: pointer follows the control-hand index fingertip.
+- Thumb open: pointer follows a stable control-hand palm/knuckle anchor, so
+  bending index or middle fingers does not pull the cursor away from the target.
 - Thumb closed/bent: clutch/freeze the pointer.
 - While clutched, bend and release index: left click at the frozen target.
 - While clutched, hold bent index and move deliberately: drag; release to drop.

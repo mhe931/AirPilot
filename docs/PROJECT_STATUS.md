@@ -54,13 +54,14 @@ merge and delete them.
   preview orientation.
 - Win32 virtual-desktop geometry is used for cursor mapping, including negative
   origins for monitors left or above the primary display.
-- Primary mouse gestures now use pose/clutch semantics: thumb open tracks,
-  thumb closed/bent freezes the pointer, index bend/release clicks or drags
-  while clutched, and middle bend/release maps to right or middle click.
+- Primary mouse gestures now use pose/clutch semantics: thumb open tracks from a
+  stable palm/knuckle anchor, thumb closed/bent freezes the pointer, index
+  bend/release clicks or drags while clutched, and middle bend/release maps to
+  right or middle click.
 - A separate gesture/action help window is available with `H` or a deliberate
-  second-hand thumb-index hold. The Help window is now a glanceable dashboard
-  with quick-start cards, core gestures, controls, shortcut-mode mappings,
-  grouped action catalog, Task View guidance, and risky-action notes.
+  second-hand thumb-index hold. The Help window is now an action-first dictionary
+  grouped by Quick Start, Mouse, Control, Shortcut Mode, Windows/Apps, Browser,
+  Presentation, Media, and Risky.
 - A configurable shortcut action catalog and two-hand shortcut mode are
   implemented; risky actions are disabled by default. Clipboard History
   (`clipboard.history` / `Win+V`) is enabled by default through shortcut-mode
@@ -127,36 +128,30 @@ powershell -ExecutionPolicy Bypass -File scripts/package_windows.ps1
 
 ## Validation
 
-Last local automated validation:
+Last local automated validation for the pointer-pose/help refinement:
 
+- `uv sync --extra dev`
 - `uv run --extra dev ruff format --check .`
 - `uv run --extra dev ruff check .`
 - `uv run --extra dev mypy src`
-- `uv run --extra dev python -m pytest`: 133 passed after pose/clutch,
-  cursor-feedback no-op, and failsafe latch coverage.
-- `uv run python -c "... MediaPipeHandTracker().draw(...)"` completed with
-  `draw-ok` against the installed MediaPipe package.
-- `uv run --extra dev airpilot --camera 0` started without the prior preview
-  crash and reached live preview startup; the process was then stopped after a
-  brief startup check.
+- `uv run --extra dev python -m pytest`: 135 passed, including stable
+  palm/knuckle pointer-anchor, clutch freeze/resume, click/drag lifecycle, Help
+  dictionary, cursor-feedback no-op, and failsafe latch coverage.
+- `uv run --extra dev airpilot --list-cameras` detected
+  `0: Camera 0 (DirectShow)`.
+- `uv run --extra dev airpilot --config %TEMP%\airpilot-validation-pointer-pose-help.json
+  --camera 0 --diagnose-seconds 5` opened Camera 0 through DirectShow and
+  processed 125 frames at 640x480, about 24.9 fps, with no hand observed,
+  `tracking_error_events: 0`, and `camera_reconnects: 0`.
+- `uv sync --extra package`
 - `powershell -ExecutionPolicy Bypass -File scripts\package_windows.ps1`
 - `dist\AirPilot\AirPilot.exe --help`
 - `dist\AirPilot\AirPilot.exe --list-cameras` detected
   `0: Camera 0 (DirectShow)`.
-- `dist\AirPilot\AirPilot.exe --config %TEMP%\airpilot-packaged-validation-config.json
+- `dist\AirPilot\AirPilot.exe --config %TEMP%\airpilot-packaged-pointer-pose-help.json
   --camera 0 --diagnose-seconds 5` opened Camera 0 through DirectShow and
-  processed 98 frames at 640x480, observed a hand in 11 frames, and reported
-  `camera_reconnects: 0`.
-- `dist\AirPilot\AirPilot.exe --camera 0` stayed running during a brief packaged
-  live-startup smoke test and was then stopped.
-- Secret scan found only documentation/policy references to secrets/passwords,
-  not credentials.
-- `uv run --extra dev airpilot --list-cameras` detected
-  `0: Camera 0 (DirectShow)`.
-- `uv run --extra dev airpilot --config %TEMP%\airpilot-validation-config.json
-  --camera 0 --diagnose-seconds 5` opened Camera 0 through DirectShow and
-  processed 126 frames at 640x480, about 25.1 fps, with no hand observed and
-  `camera_reconnects: 0`.
+  processed 87 frames at 640x480, about 17.3 fps, with no hand observed,
+  `tracking_error_events: 0`, and `camera_reconnects: 0`.
 
 Manual live hand acquisition and real pointer gestures still must be run with a
 hand physically presented to the webcam for this follow-up. Required checks now

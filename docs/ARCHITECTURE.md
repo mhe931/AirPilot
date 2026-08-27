@@ -36,7 +36,7 @@ control-hand policy is deterministic: prefer a detected right hand, otherwise a
 left hand, otherwise the first unknown hand. The secondary hand gates shortcut
 mode by requiring an intentional second-hand thumb-pinky hold before shortcut
 gestures can emit keyboard actions. Separate second-hand holds arm AirPilot
-(thumb-middle) and toggle the help dashboard (thumb-index) without entering
+(thumb-middle) and toggle the help dictionary (thumb-index) without entering
 shortcut mode.
 
 ## Gesture Safety
@@ -72,7 +72,8 @@ Gestures are explicit states rather than one-frame classifications:
 
 Default gestures:
 
-- Thumb open: pointer follows the control-hand index fingertip.
+- Thumb open: pointer follows a stable control-hand palm/knuckle anchor, weighted
+  toward the index and middle MCP joints rather than any fingertip.
 - Thumb closed/bent: clutch/freeze pointer.
 - Clutch plus index bend/release: left click on release, with target lock while
   held; drag starts only after hold plus deliberate movement.
@@ -82,7 +83,7 @@ Default gestures:
   repeated wheel events and suppresses pointer movement.
 - Thumb-pinky: optional pause/resume hold when enabled in config.
 - Second-hand thumb-middle hold: arm from the disarmed startup state.
-- Second-hand thumb-index hold: toggle the separate help dashboard.
+- Second-hand thumb-index hold: toggle the separate help dictionary.
 - Second-hand thumb-pinky hold: shortcut mode; configured shortcut gestures emit
   enabled catalog actions such as copy, paste, clipboard history, Task View, and
   slide navigation. Default Clipboard History is `Win+V` through shortcut-mode
@@ -99,6 +100,10 @@ Default cursor behavior:
   by default for intuitive pointer motion while leaving the preview unflipped.
 - Runtime display geometry comes from Win32 virtual-screen metrics, so the mapper
   targets absolute virtual-desktop coordinates including negative origins.
+- The gesture engine feeds cursor mapping from a stable palm/knuckle reference,
+  falling back to the index fingertip only for incomplete synthetic/legacy
+  landmark sets. Bending index or middle fingers alone therefore should not move
+  the pointer target.
 - Camera bounds crop the active control region. Defaults intentionally use a
   tighter active region for faster pointer travel.
 - Smoothing, sensitivity, and dead zone balance responsiveness against jitter.

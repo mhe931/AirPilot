@@ -5,7 +5,7 @@ from math import hypot
 
 from airpilot.config import GestureConfig
 from airpilot.domain.cursor import CursorMapper
-from airpilot.domain.pose import HandPose, estimate_hand_pose
+from airpilot.domain.pose import HandPose, estimate_hand_pose, stable_pointer_anchor
 from airpilot.domain.types import (
     CursorPosition,
     GestureEvents,
@@ -82,8 +82,9 @@ class GestureEngine:
             finger_bend_threshold=self.config.finger_bend_threshold,
             finger_extend_threshold=self.config.finger_extend_threshold,
         )
+        pointer_reference = _pointer_reference(hand)
         clutch_was_active = self._clutch_active
-        clutch_now = self._resolve_clutch(pose, hand.landmarks[INDEX_TIP])
+        clutch_now = self._resolve_clutch(pose, pointer_reference)
         clutch_releasing = clutch_was_active and not clutch_now
         scroll_distance = _distance(hand, THUMB_TIP, RING_TIP)
 
@@ -127,11 +128,11 @@ class GestureEngine:
         if scroll_now:
             move = None
         elif self._drag_active:
-            move = self.cursor_mapper.map(hand.landmarks[INDEX_TIP])
+            move = self.cursor_mapper.map(pointer_reference)
         elif self._clutch_active:
             move = self._clutch_anchor_position
         elif not left_now:
-            move = self.cursor_mapper.map(hand.landmarks[INDEX_TIP])
+            move = self.cursor_mapper.map(pointer_reference)
         events = GestureEvents(
             move=move,
             paused_changed=pause_changed,
@@ -150,7 +151,7 @@ class GestureEngine:
         if conflict:
             return events
 
-        events = self._process_left(events, frame.timestamp_ms, hand.landmarks[INDEX_TIP], left_now)
+        events = self._process_left(events, frame.timestamp_ms, pointer_reference, left_now)
         events = self._process_right(events, frame.timestamp_ms, right_now)
         events = self._process_scroll(
             events,
@@ -159,7 +160,8 @@ class GestureEngine:
             scroll_now,
         )
         if clutch_releasing:
-            self._release_clutch()
+            release_anchor = events.move or self._clutch_anchor_position
+            self._release_clutch(pointer_reference)
             if not (
                 events.left_click
                 or events.right_click
@@ -169,7 +171,7 @@ class GestureEngine:
             ):
                 return replace(
                     events,
-                    move=self.cursor_mapper.map(hand.landmarks[INDEX_TIP]),
+                    move=release_anchor,
                     active_gesture="tracking",
                     status="tracking",
                 )
@@ -225,14 +227,14 @@ class GestureEngine:
         self,
         events: GestureEvents,
         timestamp_ms: int,
-        index_tip: Landmark,
+        pointer_reference: Landmark,
         active_now: bool,
     ) -> GestureEvents:
         if active_now and not self._left.active:
             self._click_anchor_position = (
                 self._clutch_anchor_position
                 or self.cursor_mapper.current
-                or self.cursor_mapper.map(index_tip)
+                or self.cursor_mapper.map(pointer_reference)
             )
             self._left = _PinchState(active=True, started_ms=timestamp_ms)
             return replace(
@@ -245,7 +247,7 @@ class GestureEngine:
         if active_now and self._left.active:
             started = self._left.started_ms if self._left.started_ms is not None else timestamp_ms
             anchor = self._click_anchor_position
-            projected = self.cursor_mapper.project(index_tip)
+            projected = self.cursor_mapper.project(pointer_reference)
             drag_distance = _position_distance(anchor, projected) if anchor is not None else 0.0
             if (
                 not self._drag_active
@@ -255,7 +257,7 @@ class GestureEngine:
             ):
                 self._drag_active = True
                 self._left.consumed = True
-                move = self.cursor_mapper.map(index_tip)
+                move = self.cursor_mapper.map(pointer_reference)
                 return replace(
                     events,
                     move=move,
@@ -266,7 +268,7 @@ class GestureEngine:
             return replace(
                 events,
                 move=(
-                    self.cursor_mapper.map(index_tip)
+                    self.cursor_mapper.map(pointer_reference)
                     if self._drag_active
                     else _freeze_anchor(anchor, events.move)
                 ),
@@ -448,20 +450,23 @@ class GestureEngine:
         self._click_anchor_position = None
         self._release_clutch()
 
-    def _resolve_clutch(self, pose: HandPose, index_tip: Landmark) -> bool:
+    def _resolve_clutch(self, pose: HandPose, pointer_reference: Landmark) -> bool:
         if not pose.confident:
             return self._clutch_active
         clutch_now = not pose.thumb_open if self._clutch_active else pose.thumb_closed
         if clutch_now and not self._clutch_active:
             self._clutch_anchor_position = self.cursor_mapper.current or self.cursor_mapper.map(
-                index_tip
+                pointer_reference
             )
             self._clutch_active = True
         return clutch_now
 
-    def _release_clutch(self) -> None:
+    def _release_clutch(self, pointer_reference: Landmark | None = None) -> None:
         if self._clutch_anchor_position is not None:
-            self.cursor_mapper.set_current(self._clutch_anchor_position)
+            if pointer_reference is None:
+                self.cursor_mapper.set_current(self._clutch_anchor_position)
+            else:
+                self.cursor_mapper.rebase(pointer_reference, self._clutch_anchor_position)
         self._clutch_active = False
         self._clutch_anchor_position = None
 
@@ -470,6 +475,10 @@ def _distance(hand: HandLandmarks, a: int, b: int) -> float:
     first = hand.landmarks[a]
     second = hand.landmarks[b]
     return hypot(first.x - second.x, first.y - second.y)
+
+
+def _pointer_reference(hand: HandLandmarks) -> Landmark:
+    return stable_pointer_anchor(hand) or hand.landmarks[INDEX_TIP]
 
 
 def _position_distance(first: CursorPosition | None, second: CursorPosition | None) -> float:
