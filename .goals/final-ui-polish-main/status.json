@@ -1,10 +1,16 @@
 {
   "goal_id": "final-ui-polish-main",
-  "status": "building",
+  "status": "done",
   "iteration": 1,
   "builder_model": "Claude:Sonnet-4.6",
   "inspector_model": "Claude:Haiku-4.5",
   "initial_sha": "d2e8158bdf7426fc3f8c0f7074271536bf224dcf",
   "created_at": "2026-08-27T22:10:46.078+03:00",
-  "history": []
+  "history": [
+    {
+      "iteration": 1,
+      "verdict": "PASS",
+      "feedback_file": "inspector-feedback-1.md"
+    }
+  ]
 }
