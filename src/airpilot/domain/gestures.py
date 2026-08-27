@@ -160,8 +160,8 @@ class GestureEngine:
             scroll_now,
         )
         if clutch_releasing:
-            release_anchor = events.move
-            self._release_clutch()
+            release_anchor = events.move or self._clutch_anchor_position
+            self._release_clutch(pointer_reference)
             if not (
                 events.left_click
                 or events.right_click
@@ -461,9 +461,12 @@ class GestureEngine:
             self._clutch_active = True
         return clutch_now
 
-    def _release_clutch(self) -> None:
+    def _release_clutch(self, pointer_reference: Landmark | None = None) -> None:
         if self._clutch_anchor_position is not None:
-            self.cursor_mapper.set_current(self._clutch_anchor_position)
+            if pointer_reference is None:
+                self.cursor_mapper.set_current(self._clutch_anchor_position)
+            else:
+                self.cursor_mapper.rebase(pointer_reference, self._clutch_anchor_position)
         self._clutch_active = False
         self._clutch_anchor_position = None
 

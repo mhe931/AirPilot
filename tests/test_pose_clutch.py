@@ -76,15 +76,39 @@ def test_thumb_clutch_freezes_and_releases_pointer_without_jump() -> None:
     clutch = sut.process(frame(100, pose_hand(thumb_closed=True)))
     moved_while_closed = sut.process(frame(200, pose_hand(thumb_closed=True, offset=(0.30, 0.0))))
     released = sut.process(frame(300, pose_hand(offset=(0.30, 0.0))))
-    resumed = sut.process(frame(400, pose_hand(offset=(0.30, 0.0))))
+    resumed_stationary = sut.process(frame(400, pose_hand(offset=(0.30, 0.0))))
+    resumed_nudged = sut.process(frame(500, pose_hand(offset=(0.33, 0.0))))
 
     assert moving.move is not None
     assert clutch.active_gesture == "clutch"
     assert clutch.move == moving.move
     assert moved_while_closed.move == moving.move
     assert released.move == moving.move
-    assert resumed.move is not None
-    assert resumed.move.x > moving.move.x
+    assert resumed_stationary.move == moving.move
+    assert resumed_nudged.move is not None
+    assert 0 < resumed_nudged.move.x - moving.move.x <= 8
+
+
+def test_post_clutch_resume_jump_is_bounded_after_large_hand_translation() -> None:
+    sut = GestureEngine(GestureConfig(), CursorMapper(CursorConfig()))
+
+    moving = sut.process(frame(0, pose_hand()))
+    sut.process(frame(100, pose_hand(thumb_closed=True)))
+    moved_while_closed = sut.process(frame(200, pose_hand(thumb_closed=True, offset=(0.30, 0.0))))
+    released = sut.process(frame(300, pose_hand(offset=(0.30, 0.0))))
+    resumed_stationary = sut.process(frame(400, pose_hand(offset=(0.30, 0.0))))
+    resumed_nudged = sut.process(frame(500, pose_hand(offset=(0.32, 0.0))))
+
+    assert moving.move is not None
+    assert moved_while_closed.move == moving.move
+    assert released.move == moving.move
+    assert resumed_stationary.move is not None
+    assert (
+        _cursor_distance(released.move, resumed_stationary.move)
+        <= sut.config.click_freeze_radius_px
+    )
+    assert resumed_nudged.move is not None
+    assert 0 < _cursor_distance(resumed_stationary.move, resumed_nudged.move) <= 80
 
 
 def test_clutch_index_bend_clicks_once_at_frozen_location() -> None:

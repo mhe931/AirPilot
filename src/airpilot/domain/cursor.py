@@ -10,6 +10,8 @@ from airpilot.domain.types import CursorPosition, Landmark
 class CursorMapper:
     config: CursorConfig
     _last: CursorPosition | None = None
+    _rebase_offset_x: int = 0
+    _rebase_offset_y: int = 0
 
     @property
     def current(self) -> CursorPosition | None:
@@ -17,9 +19,25 @@ class CursorMapper:
 
     def reset(self) -> None:
         self._last = None
+        self._rebase_offset_x = 0
+        self._rebase_offset_y = 0
 
     def set_current(self, position: CursorPosition | None) -> None:
         self._last = position
+
+    def rebase(self, point: Landmark, target: CursorPosition) -> None:
+        """Map the current hand anchor to the current cursor target.
+
+        Clutching freezes the visible cursor while the hand may keep moving.  On
+        release, continuing with absolute camera coordinates would make the next
+        mapped frame jump toward the hand's new location.  A rebase preserves the
+        calibrated motion scale/direction but treats this hand anchor as the new
+        origin for the frozen target.
+        """
+        projected = self._project_without_rebase(point)
+        self._rebase_offset_x = target.x - projected.x
+        self._rebase_offset_y = target.y - projected.y
+        self._last = target
 
     def map(self, point: Landmark) -> CursorPosition:
         mapped = self.project(point)
@@ -42,6 +60,15 @@ class CursorMapper:
         return self._last
 
     def project(self, point: Landmark) -> CursorPosition:
+        projected = self._project_without_rebase(point)
+        return self._clamp_position(
+            CursorPosition(
+                x=projected.x + self._rebase_offset_x,
+                y=projected.y + self._rebase_offset_y,
+            )
+        )
+
+    def _project_without_rebase(self, point: Landmark) -> CursorPosition:
         normalized_x = self._normalize(
             point.x,
             self.config.camera_min_x,
