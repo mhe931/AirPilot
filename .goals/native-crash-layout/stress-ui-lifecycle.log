@@ -1,0 +1,45 @@
+=== ui_lifecycle_stress summary ===
+cycles_per_suite    : 30
+elapsed_s           : 35.91
+help_window_cycles  : 30
+settings_cycles     : 30
+tk_root_cycles      : 30
+keypress_cycles     : 30
+pause_cycles        : 30
+arm_disarm_cycles   : 60
+shortcut_cycles     : 30
+errors              : 0
+=== end ===
+
+INTERACTIVE / PHYSICAL BLOCKERS
+================================
+The following scenarios require a physical camera and interactive display and
+cannot be fully automated in a headless agent environment:
+
+  1. Full-app camera + UI combined run (airpilot --camera 0)
+     Manual procedure: uv run --extra dev airpilot --camera 0
+     Verify: preview opens, overlay text outside sidebar, no crash over 15 min.
+
+  2. Help window open/close (key H) during live camera session
+     Manual procedure: Press H while preview is running; verify Help opens,
+     close with X or H again; repeat 5 times.
+
+  3. Settings window open/close (key S) during live camera session
+     Manual procedure: Press S while preview is running; verify Settings opens,
+     close with Cancel; repeat 5 times.
+
+  4. Shortcut mode activation (two-hand gesture)
+     Manual procedure: Present two hands; verify SHORTCUT MODE overlay appears.
+
+  5. Camera interruption / reconnect recovery
+     Manual procedure: Unplug/replug USB camera; verify reconnect message and
+     app continues after reconnect_attempts exhausted (or recovers).
+
+  6. Title-bar window close (X button on cv2 preview)
+     Manual procedure: Click X on the AirPilot preview window; verify clean exit.
+
+  7. Gesture arm via thumb-middle hold (two-hand)
+     Manual procedure: Present control hand + second hand thumb-middle hold;
+     verify ARMED banner appears.
+
+All automated-substitute tests for these scenarios pass; see test_app_lifecycle.py.

@@ -1,0 +1,13 @@
+=== camera_mediapipe_stress summary ===
+mode            : continuous
+elapsed_s       : 900.46
+frames_processed: 8975
+frames_skipped  : 0
+track_errors    : 0
+invalid_frames  : 0
+camera_opens    : 1
+camera_closes   : 1
+tracker_creates : 1
+tracker_closes  : 1
+crashes         : 0
+=== end ===
