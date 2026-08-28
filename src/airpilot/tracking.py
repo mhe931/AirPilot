@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from typing import Protocol
 
@@ -21,7 +22,24 @@ class HandDrawingError(RuntimeError):
     """Raised when preview landmark rendering fails."""
 
 
+class InvalidFrameError(ValueError):
+    """Raised when a frame with zero or invalid dimensions is passed to the tracker."""
+
+
 class MediaPipeHandTracker:
+    """MediaPipe-based hand tracker.
+
+    Thread ownership: all public methods (``track``, ``draw``, ``close``) MUST
+    be called from the **same thread** that constructed this object.  The
+    underlying ``mp.solutions.hands.Hands`` pipeline maintains C++ thread-local
+    state; calling ``process()`` concurrently or from a different thread corrupts
+    that state and causes the Python 3.11 GIL assertion crash
+    ``PyEval_RestoreThread: the function must be called with the GIL held``.
+
+    AirPilot's single-threaded ``run()`` loop guarantees this invariant.  The
+    ``_owner_thread_id`` assertion below detects accidental violations early.
+    """
+
     def __init__(
         self,
         *,
@@ -30,6 +48,7 @@ class MediaPipeHandTracker:
         min_tracking_confidence: float = 0.55,
         input_is_mirrored: bool = False,
     ) -> None:
+        self._owner_thread_id: int = threading.get_ident()
         self._hands = mp.solutions.hands.Hands(
             static_image_mode=False,
             max_num_hands=max_num_hands,
@@ -39,7 +58,34 @@ class MediaPipeHandTracker:
         )
         self._input_is_mirrored = input_is_mirrored
 
+    def _assert_owner_thread(self) -> None:
+        """Raise ``RuntimeError`` if called from a thread other than the owner."""
+        caller = threading.get_ident()
+        if caller != self._owner_thread_id:
+            raise RuntimeError(
+                f"MediaPipeHandTracker called from thread {caller} but was "
+                f"constructed on thread {self._owner_thread_id}.  "
+                "Camera and MediaPipe objects must be owned by a single thread."
+            )
+
     def track(self, image: MatLike, timestamp_ms: int) -> TrackingFrame:
+        """Track hands in *image*.
+
+        Validates that *image* has non-zero height and width before calling
+        MediaPipe.  Passing a zero-dimension frame to the pipeline triggers
+        ``landmark_projection_calculator`` ``NORM_RECT`` warnings (the
+        calculator receives image dimensions of 0×0, making normalised-rect
+        projection undefined) and can corrupt internal C++ state leading to the
+        GIL crash on the next ``cv2.waitKey()`` call.
+        """
+        self._assert_owner_thread()
+        if image is None or image.ndim < 2 or image.shape[0] == 0 or image.shape[1] == 0:
+            raise InvalidFrameError(
+                f"Refusing to pass an empty/zero-dimension frame to MediaPipe "
+                f"(shape={getattr(image, 'shape', None)}).  "
+                "This prevents landmark_projection_calculator NORM_RECT warnings "
+                "and pipeline state corruption."
+            )
         rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         rgb.flags.writeable = False
         result = self._hands.process(rgb)
@@ -73,6 +119,7 @@ class MediaPipeHandTracker:
         )
 
     def draw(self, image: MatLike, hand: HandLandmarks | None) -> MatLike:
+        self._assert_owner_thread()
         if hand is None:
             return image
         try:
@@ -97,6 +144,7 @@ class MediaPipeHandTracker:
         return image
 
     def close(self) -> None:
+        self._assert_owner_thread()
         self._hands.close()
 
 

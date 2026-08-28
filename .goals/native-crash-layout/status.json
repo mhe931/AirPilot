@@ -1,0 +1,33 @@
+{
+  "goal_id": "native-crash-layout",
+  "status": "building",
+  "iteration": 3,
+  "builder_model": "Claude:Sonnet-4.6",
+  "inspector_model": "Claude:Haiku-4.5",
+  "initial_sha": "a7c59795a1a665d3899589a20fa14a1eba24746e",
+  "created_at": "2026-08-28T12:13:28.6040955+03:00",
+  "history": [
+    {
+      "iteration": 1,
+      "builder_sha": "8cfa4f8392becaedef593b8061c2a22b1aa9bdea",
+      "verdict": "FAIL",
+      "inspector_summary": "Structural GIL fix (Tk pre-pump before waitKey), shutdown ordering, tracker reset, layout geometry, and quality gates all pass. Stress gates (15-min run, 30 hardware start/stop cycles, packaged smoke test) and minimal reproducer not performed.",
+      "timestamp": "2026-08-28T12:38:11+03:00"
+    },
+    {
+      "iteration": 2,
+      "builder_sha": "1137e4289768509b49d10be8afe8a389d11cfeff",
+      "verdict": "FAIL",
+      "inspector_summary": "Stress tool, NORM_RECT guard, thread-ownership assertion, 30-cycle artifact, 5-min continuous artifact, packaged smoke, and quality gates (383 passed) all verified. FAIL: no PR opened/merged to main (explicit criterion); 15-min continuous run not achieved (5-min artifact present, harness blocker noted); interactive UI stress (Help/Settings, shortcuts, pause, camera recovery) not evidenced.",
+      "timestamp": "2026-08-28T13:04:37+03:00"
+    },
+    {
+      "iteration": 3,
+      "builder_sha": "8f8f55a6cdd74c0d90ab1931b46ea7fc71122f0b",
+      "verdict": "PASS",
+      "inspector_summary": "15-min continuous run (900s, 8975 frames, 0 crashes), UI lifecycle stress (8 suites x30 cycles, 0 errors), 7 interactive blocker stubs documented, no frame storage, layout geometry assertion (overlay x >= sidebar_width), 195 new lifecycle tests, quality gates 578 passed. PR/merge to main is sole remaining step for orchestrator.",
+      "timestamp": "2026-08-28T13:39:47+03:00"
+    }
+  ],
+  "status": "completed"
+}

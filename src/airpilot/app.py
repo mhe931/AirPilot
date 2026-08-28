@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import faulthandler
 import json
 import sys
 import tkinter as tk
@@ -334,6 +335,11 @@ class PauseController(Protocol):
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    # Enable C-level fault handler so any native crash (e.g. GIL violations
+    # from native extensions) prints a stack trace to stderr before the
+    # process dies.  This is a no-op once the process is healthy but vital
+    # for post-crash diagnosis.
+    faulthandler.enable(file=sys.stderr)
     parser = argparse.ArgumentParser(description="AirPilot Windows gesture mouse")
     parser.add_argument("--camera", type=int, default=None, help="camera index")
     parser.add_argument("--list-cameras", action="store_true", help="list available cameras")
@@ -415,6 +421,15 @@ def run(
     preview_visible_once = False
     preview_maximize_disabled = False
     failsafe_latched = False
+    # Consecutive tracker exception counter.  After _TRACKER_RESET_THRESHOLD
+    # back-to-back exceptions (e.g. from a corrupt MediaPipe pipeline state
+    # signalled by landmark_projection_calculator NORM_RECT warnings), the
+    # tracker is closed and recreated to restore a clean pipeline.  This
+    # prevents the stale C++ thread-state that causes the Python 3.11 GIL
+    # assertion "PyEval_RestoreThread: the function must be called with the
+    # GIL held" during the next cv2.waitKey() call.
+    _tracker_error_streak = 0
+    _TRACKER_RESET_THRESHOLD = 5
 
     try:
         camera = OpenCVCamera(
@@ -452,7 +467,9 @@ def run(
             image = _prepare_camera_image(camera_frame.image, config)
             try:
                 frame = tracker.track(image, camera_frame.timestamp_ms)
+                _tracker_error_streak = 0
             except Exception as exc:
+                _tracker_error_streak += 1
                 stats.observe_tracking_error()
                 frame = TrackingFrame(
                     timestamp_ms=camera_frame.timestamp_ms,
@@ -464,6 +481,25 @@ def run(
                     print(
                         "AirPilot warning: tracking failed for one frame; "
                         f"continuing ({type(exc).__name__}: {exc}).",
+                        file=sys.stderr,
+                    )
+                if _tracker_error_streak >= _TRACKER_RESET_THRESHOLD:
+                    # Reset the MediaPipe pipeline to clear corrupt internal
+                    # state (e.g. from landmark_projection_calculator
+                    # NORM_RECT errors).  Without this, MediaPipe background
+                    # threads can hold stale Python thread states that crash
+                    # Python 3.11's strict PyEval_RestoreThread assertion
+                    # when cv2.waitKey() next releases the GIL.
+                    with suppress(Exception):
+                        tracker.close()
+                    tracker = MediaPipeHandTracker(
+                        min_detection_confidence=config.runtime.tracker_detection_confidence,
+                        min_tracking_confidence=config.runtime.tracker_tracking_confidence,
+                        input_is_mirrored=config.runtime.flip_camera_x,
+                    )
+                    _tracker_error_streak = 0
+                    print(
+                        "AirPilot warning: tracker restarted after consecutive errors.",
                         file=sys.stderr,
                     )
             events = engine.process(frame)
@@ -533,6 +569,21 @@ def run(
                     operator_notice=operator_notice,
                     mouse_output_locked=mouse_output_locked,
                 )
+                # Pump Tkinter events BEFORE cv2.imshow / cv2.waitKey.
+                #
+                # On Windows, cv2.waitKey() runs a Win32 PeekMessage loop that
+                # dispatches messages to ALL windows owned by the calling
+                # thread, including any hidden Tkinter root window.  If Tkinter
+                # callbacks fire while Python's GIL is in the partially-
+                # released state that OpenCV uses internally, Python 3.11's
+                # strict PyEval_RestoreThread assertion triggers the fatal
+                # "the function must be called with the GIL held" crash.
+                #
+                # Draining the Tk queue here (while the GIL is fully held)
+                # means the queue is empty when waitKey runs its own loop,
+                # eliminating the re-entrant callback window.
+                help_window.update(config)
+                settings_window.update()
                 cv2.imshow(PREVIEW_WINDOW_TITLE, image)
                 preview_created = True
                 if not preview_maximize_disabled:
@@ -556,8 +607,6 @@ def run(
                     "ARMED by gesture",
                 }:
                     failsafe_latched = False
-                help_window.update(config)
-                settings_window.update()
                 preview_visibility = _preview_window_visibility(
                     PREVIEW_WINDOW_TITLE,
                     preview_created=preview_created,
@@ -682,6 +731,35 @@ def status_lines(
     return lines
 
 
+def _compute_sidebar_width(
+    frame: TrackingFrame,
+    events: GestureEvents,
+    config: AppConfig,
+    *,
+    armed: bool,
+    image_width: int,
+) -> int:
+    """Return the pixel width the sidebar will occupy, or 0 if it is disabled.
+
+    Mirrors the panel-width logic in :func:`_draw_sidebar` so that
+    :func:`_layout_overlay` can reserve an equal left margin, preventing
+    the status text from being rendered behind the sidebar.
+    """
+    if not config.text_styles.sidebar_enabled:
+        return 0
+    lines = _sidebar_lines(frame, events, config, armed=armed)
+    if not lines:
+        return 0
+    scale_factor = max(config.text_styles.sidebar_scale_pct, 10) / 100.0
+    text_scale = 0.35 * scale_factor
+    padding_x = 4
+    panel_width = 2 * padding_x
+    for line in lines:
+        tw, _ = cv2.getTextSize(line, cv2.FONT_HERSHEY_SIMPLEX, text_scale, 1)
+        panel_width = max(panel_width, tw[0] + 2 * padding_x)
+    return min(panel_width, image_width // 3)
+
+
 def _draw_status(
     image: MatLike,
     frame: TrackingFrame,
@@ -705,7 +783,12 @@ def _draw_status(
         operator_notice=operator_notice,
         mouse_output_locked=mouse_output_locked,
     )
-    layout = _layout_overlay(lines, int(image.shape[1]))
+    # Measure the sidebar width so the overlay text starts to the right of it
+    # and is never rendered behind the sidebar panel.
+    sidebar_width = _compute_sidebar_width(
+        frame, events, config, armed=armed, image_width=int(image.shape[1])
+    )
+    layout = _layout_overlay(lines, int(image.shape[1]), sidebar_width=sidebar_width)
     _draw_banner(
         image,
         layout,
@@ -2509,7 +2592,9 @@ class OverlayLine:
     scale: float
 
 
-def _layout_overlay(lines: Sequence[str], width: int) -> list[OverlayLine]:
+def _layout_overlay(
+    lines: Sequence[str], width: int, *, sidebar_width: int = 0
+) -> list[OverlayLine]:
     """Lay out overlay text lines with compact scales for 640×480 readability.
 
     Line 0 (headline): scale 0.52, height 22 px.
@@ -2517,8 +2602,13 @@ def _layout_overlay(lines: Sequence[str], width: int) -> list[OverlayLine]:
     Lines 2+ (detail): scale 0.38, height 18 px.
     The banner covers only the first two lines; detail lines are drawn below
     via shadow text so they remain readable over the camera image.
+
+    ``sidebar_width`` reserves space for the left-side gesture dashboard so
+    that all overlay text is positioned to the right of the sidebar and never
+    rendered behind it.
     """
-    padded_width = max(width - 24, 40)
+    x_offset = sidebar_width + 10
+    padded_width = max(width - x_offset - 14, 40)
     layout: list[OverlayLine] = []
     y = 22
     for index, text in enumerate(lines):
@@ -2534,7 +2624,7 @@ def _layout_overlay(lines: Sequence[str], width: int) -> list[OverlayLine]:
         layout.append(
             OverlayLine(
                 text=_fit_text(text, padded_width, scale=scale),
-                x=10,
+                x=x_offset,
                 y=y,
                 scale=scale,
             )
