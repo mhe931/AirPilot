@@ -5,7 +5,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from airpilot.config import AppConfig, GestureBinding, load_config, save_config
+from airpilot.config import (
+    CURRENT_SCHEMA_VERSION,
+    AppConfig,
+    GestureBinding,
+    load_config,
+    save_config,
+)
 from airpilot.input import RecordingMouseController
 from airpilot.safety import MouseSafetyGate
 from airpilot.shortcut_recorder import (
@@ -374,7 +380,7 @@ def test_v11_config_migrates_shortcut_keys_field(tmp_path: Path) -> None:
 
     loaded = load_config(path)
 
-    assert loaded.schema_version == 12
+    assert loaded.schema_version == CURRENT_SCHEMA_VERSION
     b = next(b for b in loaded.gesture_bindings if b.id == "my_binding")
     assert b.shortcut_keys == ("ctrl", "9")
 
@@ -404,7 +410,7 @@ def test_v11_config_without_shortcut_keys_defaults_to_empty(tmp_path: Path) -> N
 
     loaded = load_config(path)
 
-    assert loaded.schema_version == 12
+    assert loaded.schema_version == CURRENT_SCHEMA_VERSION
     b = next(b for b in loaded.gesture_bindings if b.id == "old_binding")
     assert b.shortcut_keys == ()
     assert b.action_id == "presentation.next_slide"

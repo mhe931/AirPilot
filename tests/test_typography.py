@@ -35,6 +35,7 @@ from airpilot.app import (
     _sidebar_lines,
 )
 from airpilot.config import (
+    CURRENT_SCHEMA_VERSION,
     AppConfig,
     GestureBinding,
     TextStyleConfig,
@@ -111,7 +112,7 @@ def test_text_style_round_trip(tmp_path: Path) -> None:
     path = save_config(config, tmp_path / "cfg.json")
     loaded = load_config(path)
 
-    assert loaded.schema_version == 12
+    assert loaded.schema_version == CURRENT_SCHEMA_VERSION
     assert loaded.text_styles.overlay_fg == "#ff0000"
     assert loaded.text_styles.sidebar_enabled is False
     assert loaded.text_styles.help_font_size == 12
@@ -134,7 +135,7 @@ def test_v10_config_migrates_to_v11_with_text_style_defaults(tmp_path: Path) -> 
     )
     loaded = load_config(path)
 
-    assert loaded.schema_version == 12
+    assert loaded.schema_version == CURRENT_SCHEMA_VERSION
     assert loaded.text_styles.overlay_fg == "#ffffff"
     assert loaded.text_styles.sidebar_enabled is True
     assert loaded.text_styles.help_font_family == "Consolas"

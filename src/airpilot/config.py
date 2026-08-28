@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
-CURRENT_SCHEMA_VERSION = 12
+CURRENT_SCHEMA_VERSION = 13
 
 # ---------------------------------------------------------------------------
 # Gesture Binding schema (data-driven configurable bindings)
@@ -493,6 +493,9 @@ class TextStyleConfig:
     # Window opacity (0.1–1.0; 1.0 = fully opaque)
     help_opacity: float = 1.0
     settings_opacity: float = 1.0
+    # Independent OpenCV region background opacity (0.0–1.0; 0.0 = no background)
+    overlay_bg_opacity: float = 1.0
+    sidebar_bg_opacity: float = 1.0
 
 
 def _text_style_from_section(raw: dict[str, Any]) -> TextStyleConfig:
@@ -511,6 +514,8 @@ def _text_style_from_section(raw: dict[str, Any]) -> TextStyleConfig:
         "settings_font_size": defaults.settings_font_size,
         "help_opacity": defaults.help_opacity,
         "settings_opacity": defaults.settings_opacity,
+        "overlay_bg_opacity": defaults.overlay_bg_opacity,
+        "sidebar_bg_opacity": defaults.sidebar_bg_opacity,
     }
     section.update({k: v for k, v in raw.items() if k in section})
     return TextStyleConfig(**section)
@@ -588,6 +593,8 @@ def _config_from_dict(raw: dict[str, Any]) -> AppConfig:
         return _migrate_v10_config(raw)
     if version == 11:
         return _migrate_v11_config(raw)
+    if version == 12:
+        return _migrate_v12_config(raw)
     if version != CURRENT_SCHEMA_VERSION:
         raise ValueError(f"Unsupported AirPilot config schema_version {version!r}")
     return AppConfig(
@@ -759,6 +766,19 @@ def _migrate_v9_config(raw: dict[str, Any]) -> AppConfig:
         cursor=CursorConfig(**_section(raw, "cursor")),
         actions=_actions_from_section(_section(raw, "actions")),
         runtime=RuntimeConfig(**_section(raw, "runtime")),
+    )
+
+
+def _migrate_v12_config(raw: dict[str, Any]) -> AppConfig:
+    """v12 → v13: TextStyleConfig gains overlay_bg_opacity and sidebar_bg_opacity."""
+    return AppConfig(
+        schema_version=CURRENT_SCHEMA_VERSION,
+        gestures=_gestures_from_section(_section(raw, "gestures")),
+        cursor=CursorConfig(**_section(raw, "cursor")),
+        actions=_actions_from_section(_section(raw, "actions")),
+        runtime=RuntimeConfig(**_section(raw, "runtime")),
+        gesture_bindings=_bindings_from_list(raw.get("gesture_bindings")),
+        text_styles=_text_style_from_section(_section(raw, "text_styles")),
     )
 
 

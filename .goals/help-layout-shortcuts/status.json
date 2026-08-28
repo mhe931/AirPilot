@@ -1,0 +1,10 @@
+{
+  "goal_id": "help-layout-shortcuts",
+  "status": "building",
+  "iteration": 1,
+  "builder_model": "Claude:Sonnet-4.6",
+  "inspector_model": "Claude:Haiku-4.5",
+  "initial_sha": "5afda9f0c9ef5ebabb2d99c7a4105b54caa0563e",
+  "created_at": "2026-08-28T10:58:15.432+03:00",
+  "history": []
+}
