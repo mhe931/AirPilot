@@ -4,6 +4,7 @@ from airpilot.app import (
     HelpBounds,
     HelpWindow,
     TrackingStats,
+    _compute_sidebar_width,
     _disable_cv2_window_maximize,
     _dispatch_ui_action,
     _filter_help_sections,
@@ -12,9 +13,11 @@ from airpilot.app import (
     _help_lines,
     _help_sections,
     _help_text_wrap_mode,
+    _layout_overlay,
     _preview_window_closed,
     _sidebar_lines,
     _text_width,
+    _TkSharedRoot,
     _wrap_help_lines,
     status_lines,
 )
@@ -162,7 +165,7 @@ def test_status_lines_show_armed_notice() -> None:
 
 def test_overlay_layout_truncates_to_frame_width() -> None:
     longest = "Controls: A = Arm/Disarm | P = Pause/Resume | Q = Quit"
-    layout = __import__("airpilot.app", fromlist=["_layout_overlay"])._layout_overlay(
+    layout = _layout_overlay(
         ["AIRPILOT - DISARMED", longest],
         160,
     )
@@ -170,6 +173,139 @@ def test_overlay_layout_truncates_to_frame_width() -> None:
     assert all(line.x >= 0 for line in layout)
     assert all(len(line.text) <= len(longest) for line in layout)
     assert layout[1].text.endswith("...")
+
+
+def test_overlay_layout_x_offset_clears_sidebar() -> None:
+    """Overlay text x positions must be >= sidebar_width so text is never
+    rendered behind the sidebar panel regardless of image width."""
+    sidebar_width = 120
+    layout = _layout_overlay(
+        ["AIRPILOT - ACTIVE", "Mouse control enabled", "detail line"],
+        640,
+        sidebar_width=sidebar_width,
+    )
+
+    assert all(line.x >= sidebar_width for line in layout), (
+        f"Overlay line x={[ln.x for ln in layout]} must all be >= sidebar_width={sidebar_width}"
+    )
+    assert all(line.x == sidebar_width + 10 for line in layout)
+
+
+def test_overlay_layout_zero_sidebar_width_uses_default_offset() -> None:
+    """When no sidebar is shown, x should default to 10 (original behaviour)."""
+    layout = _layout_overlay(["AIRPILOT - DISARMED", "guidance"], 640, sidebar_width=0)
+
+    assert all(line.x == 10 for line in layout)
+
+
+def test_compute_sidebar_width_returns_zero_when_disabled() -> None:
+    config = AppConfig()
+    config.text_styles.sidebar_enabled = False
+    frame = TrackingFrame(timestamp_ms=0, width=640, height=480, hand=None)
+    events = GestureEvents()
+
+    width = _compute_sidebar_width(frame, events, config, armed=False, image_width=640)
+
+    assert width == 0
+
+
+def test_compute_sidebar_width_positive_when_enabled() -> None:
+    config = AppConfig()
+    config.text_styles.sidebar_enabled = True
+    frame = TrackingFrame(timestamp_ms=0, width=640, height=480, hand=None)
+    events = GestureEvents()
+
+    width = _compute_sidebar_width(frame, events, config, armed=False, image_width=640)
+
+    assert width > 0
+    assert width <= 640 // 3
+
+
+def test_compute_sidebar_width_bounded_by_one_third_image() -> None:
+    """Sidebar width must never exceed one third of the image width."""
+    config = AppConfig()
+    config.text_styles.sidebar_enabled = True
+    config.text_styles.sidebar_scale_pct = 400  # extreme scale
+    frame = TrackingFrame(timestamp_ms=0, width=640, height=480, hand=None)
+    events = GestureEvents()
+
+    width = _compute_sidebar_width(frame, events, config, armed=False, image_width=640)
+
+    assert width <= 640 // 3
+
+
+def test_overlay_text_never_behind_sidebar_at_various_widths() -> None:
+    """Geometry assertion: for any sidebar_width, all overlay x values must be
+    >= sidebar_width so text is always fully inside the camera-preview region."""
+    for image_width in (320, 480, 640, 1280):
+        for sidebar_fraction in (0, 0.1, 0.2, 0.33):
+            sidebar_width = int(image_width * sidebar_fraction)
+            layout = _layout_overlay(
+                ["AIRPILOT - DISARMED", "guidance text", "detail info"],
+                image_width,
+                sidebar_width=sidebar_width,
+            )
+            for line in layout:
+                assert line.x >= sidebar_width, (
+                    f"image_width={image_width}, sidebar_width={sidebar_width}: "
+                    f"line.x={line.x} < sidebar_width"
+                )
+
+
+# ---------------------------------------------------------------------------
+# Lifecycle / Tk root stress tests (no camera hardware required)
+# ---------------------------------------------------------------------------
+
+
+def test_tk_shared_root_acquire_release_cycles() -> None:
+    """Simulate 30 acquire/release cycles (equivalent to 30 open/close cycles
+    of Help or Settings windows) and verify the root is cleaned up cleanly."""
+    import gc
+
+    for _ in range(30):
+        root = _TkSharedRoot.acquire()
+        assert root is not None
+        _TkSharedRoot.release()
+        gc.collect()
+
+    # After all releases the root should be gone
+    assert _TkSharedRoot._root is None
+    assert _TkSharedRoot._refcount == 0
+
+
+def test_tk_shared_root_force_close_is_idempotent() -> None:
+    """force_close must be safe to call multiple times and with no root."""
+    import gc
+
+    _TkSharedRoot.force_close()
+    _TkSharedRoot.force_close()  # second call must not raise
+    gc.collect()
+
+    assert _TkSharedRoot._root is None
+    assert _TkSharedRoot._refcount == 0
+
+
+def test_tk_shared_root_pump_no_op_without_root() -> None:
+    """pump() must be a no-op (not raise) when no Tk root exists."""
+    _TkSharedRoot.force_close()
+    _TkSharedRoot.pump()  # must not raise
+
+
+def test_help_window_open_close_cycle_cleans_tk_root() -> None:
+    """Opening and then closing HelpWindow must leave no Tk root behind."""
+    import gc
+
+    backend = _FakeHelpBackend()
+    win = HelpWindow(visible=True, backend_factory=lambda: backend)
+
+    win.update(AppConfig())
+    assert win.visible is True
+
+    win.close()
+    gc.collect()
+
+    # Shared root refcount must be at zero after close
+    assert _TkSharedRoot._refcount == 0
 
 
 def test_h_key_toggles_help_window() -> None:
