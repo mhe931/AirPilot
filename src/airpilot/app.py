@@ -242,11 +242,17 @@ def _sidebar_lines(
         lines.append("[arm gesture] arm")
         lines.append("[help gesture] help")
         lines.append("[2nd thumb+pinky] shortcuts")
-    # Configurable bindings – show enabled ones (any mode)
+    # Configurable bindings – show enabled ones with shortcut label or action id
     for b in config.gesture_bindings:
-        if b.enabled and b.action_id:
-            short_id = b.action_id.split(".")[-1]
-            lines.append(f"[{b.id[:8]}]:{short_id[:10]}")
+        if not b.enabled:
+            continue
+        if b.shortcut_keys:
+            label = shortcut_label(tuple(b.shortcut_keys))[:14]
+        elif b.action_id and not b.action_id.startswith("custom."):
+            label = b.action_id.split(".")[-1][:10]
+        else:
+            continue
+        lines.append(f"[{b.id[:8]}]:{label}")
     return lines
 
 
@@ -781,7 +787,13 @@ def _draw_sidebar(
 
     # Draw background panel (starts at top_offset to avoid banner overlap)
     bg = _hex_to_bgr(config.text_styles.sidebar_bg)
-    cv2.rectangle(image, (0, top_offset), (panel_width, height), bg, thickness=-1)
+    bg_alpha = max(0.0, min(1.0, config.text_styles.sidebar_bg_opacity))
+    if bg_alpha >= 1.0:
+        cv2.rectangle(image, (0, top_offset), (panel_width, height), bg, thickness=-1)
+    elif bg_alpha > 0.0:
+        overlay = image.copy()
+        cv2.rectangle(overlay, (0, top_offset), (panel_width, height), bg, thickness=-1)
+        cv2.addWeighted(overlay, bg_alpha, image, 1.0 - bg_alpha, 0, image)
 
     # Draw separator line
     cv2.line(image, (panel_width, top_offset), (panel_width, height), (60, 60, 60), 1)
@@ -1364,6 +1376,22 @@ class SettingsWindow:
                 1.0,
                 0.05,
             ),
+            (
+                "Overlay bg opacity",
+                "Overlay/status background opacity (0.0 = off, 1.0 = solid)",
+                tk.DoubleVar(value=ts.overlay_bg_opacity),
+                0.0,
+                1.0,
+                0.05,
+            ),
+            (
+                "Sidebar bg opacity",
+                "Sidebar/dashboard background opacity (0.0 = off, 1.0 = solid)",
+                tk.DoubleVar(value=ts.sidebar_bg_opacity),
+                0.0,
+                1.0,
+                0.05,
+            ),
         ]
         for row_idx, (label, hint, var, lo, hi, inc) in enumerate(rows):
             ttk.Label(frame, text=label, anchor="w").grid(row=row_idx, column=0, sticky="w", pady=3)
@@ -1910,9 +1938,10 @@ class SettingsWindow:
             g.scroll_dead_zone = max(0.0, min(0.1, g.scroll_dead_zone))
             g.scroll_units_per_step = max(1, min(20, g.scroll_units_per_step))
 
-            # Gesture bindings — persist working copy and sync custom catalog entries
+            # Gesture bindings — update list in-place so GestureBindingMatcher reference stays valid
             if hasattr(self, "_bindings_work"):
-                self._config.gesture_bindings = list(self._bindings_work)
+                del self._config.gesture_bindings[:]
+                self._config.gesture_bindings.extend(self._bindings_work)
                 sync_custom_shortcuts(self._config)
 
             # Typography settings
@@ -1933,6 +1962,16 @@ class SettingsWindow:
                     ts.help_opacity = max(0.1, min(1.0, float(tv["Help opacity"].get())))  # type: ignore[no-untyped-call]
                 if "Settings opacity" in tv:
                     ts.settings_opacity = max(0.1, min(1.0, float(tv["Settings opacity"].get())))  # type: ignore[no-untyped-call]
+                if "Overlay bg opacity" in tv:
+                    ts.overlay_bg_opacity = max(
+                        0.0,
+                        min(1.0, float(tv["Overlay bg opacity"].get())),  # type: ignore[no-untyped-call]
+                    )
+                if "Sidebar bg opacity" in tv:
+                    ts.sidebar_bg_opacity = max(
+                        0.0,
+                        min(1.0, float(tv["Sidebar bg opacity"].get())),  # type: ignore[no-untyped-call]
+                    )
 
             save_config(self._config, self._config_path)
         except (ValueError, tk.TclError):
@@ -1984,6 +2023,10 @@ class SettingsWindow:
                 tv["Help opacity"].set(dt.help_opacity)
             if "Settings opacity" in tv:
                 tv["Settings opacity"].set(dt.settings_opacity)
+            if "Overlay bg opacity" in tv:
+                tv["Overlay bg opacity"].set(dt.overlay_bg_opacity)
+            if "Sidebar bg opacity" in tv:
+                tv["Sidebar bg opacity"].set(dt.sidebar_bg_opacity)
 
 
 class _TkHelpBackend:
@@ -2096,7 +2139,7 @@ class _TkHelpBackend:
         self._tree.heading("action", text="Action")
         self._tree.column("action", width=210, stretch=True, minwidth=120)
         self._tree.heading("gesture", text="Gesture")
-        self._tree.column("gesture", width=180, stretch=True, minwidth=100)
+        self._tree.column("gesture", width=260, stretch=True, minwidth=160)
         self._tree.heading("keys", text="Keys / Shortcut")
         self._tree.column("keys", width=140, stretch=True, minwidth=80)
         self._tree.heading("state", text="State")
@@ -2135,6 +2178,9 @@ class _TkHelpBackend:
         self._section_iids = {}
 
         for section in sections:
+            if section.title == "INTRO":
+                # INTRO content shown as a wrapped label above the table — skip from tree rows.
+                continue
             # Insert collapsible section heading row
             sec_iid = self._tree.insert(
                 "",
@@ -2543,8 +2589,29 @@ def _draw_banner(
     else:
         banner_height = 40
     banner_height = min(max(banner_height, 32), int(image.shape[0]))
-    cv2.rectangle(image, (0, 0), (int(image.shape[1]), banner_height), color, thickness=-1)
+    bg_alpha = max(0.0, min(1.0, config.text_styles.overlay_bg_opacity))
+    if bg_alpha >= 1.0:
+        cv2.rectangle(image, (0, 0), (int(image.shape[1]), banner_height), color, thickness=-1)
+    elif bg_alpha > 0.0:
+        overlay = image.copy()
+        cv2.rectangle(overlay, (0, 0), (int(image.shape[1]), banner_height), color, thickness=-1)
+        cv2.addWeighted(overlay, bg_alpha, image, 1.0 - bg_alpha, 0, image)
+    else:
+        # bg_alpha == 0: no background drawn; still need text readable (shadow pass below)
+        pass
     for line in layout[:2]:
+        # Add shadow when background is semi-transparent or absent for readability
+        if bg_alpha < 1.0:
+            cv2.putText(
+                image,
+                line.text,
+                (line.x + 1, line.y + 1),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                line.scale,
+                (0, 0, 0),
+                2,
+                cv2.LINE_AA,
+            )
         cv2.putText(
             image,
             line.text,

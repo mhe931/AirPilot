@@ -1,0 +1,18 @@
+{
+  "goal_id": "help-layout-shortcuts",
+  "status": "completed",
+  "iteration": 1,
+  "builder_model": "Claude:Sonnet-4.6",
+  "inspector_model": "Claude:Haiku-4.5",
+  "initial_sha": "5afda9f0c9ef5ebabb2d99c7a4105b54caa0563e",
+  "created_at": "2026-08-28T10:58:15.432+03:00",
+  "history": [
+    {
+      "iteration": 1,
+      "builder_sha": "9b4b9b3fa16bf887b4912dab6f8dad62d69c79be",
+      "verdict": "PASS",
+      "inspected_at": "2026-08-28T11:20:50.000+03:00",
+      "summary": "All quality gates green. 33/33 focused tests pass. INTRO panel separated, gesture col widened, opacity fields added with migration, custom shortcut dispatch fixed."
+    }
+  ]
+}
