@@ -1,0 +1,18 @@
+{
+  "goal_id": "native-crash-layout",
+  "status": "building",
+  "iteration": 2,
+  "builder_model": "Claude:Sonnet-4.6",
+  "inspector_model": "Claude:Haiku-4.5",
+  "initial_sha": "a7c59795a1a665d3899589a20fa14a1eba24746e",
+  "created_at": "2026-08-28T12:13:28.6040955+03:00",
+  "history": [
+    {
+      "iteration": 1,
+      "builder_sha": "8cfa4f8392becaedef593b8061c2a22b1aa9bdea",
+      "verdict": "FAIL",
+      "inspector_summary": "Structural GIL fix (Tk pre-pump before waitKey), shutdown ordering, tracker reset, layout geometry, and quality gates all pass. Stress gates (15-min run, 30 hardware start/stop cycles, packaged smoke test) and minimal reproducer not performed.",
+      "timestamp": "2026-08-28T12:38:11+03:00"
+    }
+  ]
+}
