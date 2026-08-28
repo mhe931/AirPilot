@@ -13,6 +13,15 @@
       "verdict": "FAIL",
       "inspector_summary": "Structural GIL fix (Tk pre-pump before waitKey), shutdown ordering, tracker reset, layout geometry, and quality gates all pass. Stress gates (15-min run, 30 hardware start/stop cycles, packaged smoke test) and minimal reproducer not performed.",
       "timestamp": "2026-08-28T12:38:11+03:00"
+    },
+    {
+      "iteration": 2,
+      "builder_sha": "1137e4289768509b49d10be8afe8a389d11cfeff",
+      "verdict": "FAIL",
+      "inspector_summary": "Stress tool, NORM_RECT guard, thread-ownership assertion, 30-cycle artifact, 5-min continuous artifact, packaged smoke, and quality gates (383 passed) all verified. FAIL: no PR opened/merged to main (explicit criterion); 15-min continuous run not achieved (5-min artifact present, harness blocker noted); interactive UI stress (Help/Settings, shortcuts, pause, camera recovery) not evidenced.",
+      "timestamp": "2026-08-28T13:04:37+03:00"
     }
-  ]
+  ],
+  "status": "building",
+  "iteration": 3
 }
