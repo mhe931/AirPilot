@@ -658,3 +658,112 @@ def test_run_releases_drag_on_exceptional_exit(
     assert "drag_start" in mouse.actions
     assert "drag_end" in mouse.actions
     assert "release_all_keys" in mouse.actions
+
+
+# ---------------------------------------------------------------------------
+# NORM_RECT investigation: frame-dimension guard in MediaPipeHandTracker
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (0, 640, 3),  # zero height
+        (480, 0, 3),  # zero width
+        (0, 0, 3),  # both zero
+    ],
+)
+def test_track_raises_invalid_frame_error_for_zero_dimension_image(
+    shape: tuple[int, int, int],
+) -> None:
+    """AirPilot must never pass a zero-dimension frame to MediaPipe.
+
+    landmark_projection_calculator emits NORM_RECT warnings (and can corrupt
+    MediaPipe's C++ pipeline state) when image dimensions are 0×0.  The guard
+    in MediaPipeHandTracker.track() catches this before calling process().
+    """
+    image = np.zeros(shape, dtype=np.uint8)
+    t = tracking.MediaPipeHandTracker()
+    try:
+        with pytest.raises(tracking.InvalidFrameError):
+            t.track(image, timestamp_ms=0)
+    finally:
+        t.close()
+
+
+def test_track_raises_invalid_frame_error_for_none_image() -> None:
+    t = tracking.MediaPipeHandTracker()
+    try:
+        with pytest.raises(tracking.InvalidFrameError):
+            t.track(None, timestamp_ms=0)  # type: ignore[arg-type]
+    finally:
+        t.close()
+
+
+def test_track_accepts_normal_frame() -> None:
+    """Sanity: a valid 16×16 frame must not raise InvalidFrameError."""
+    image = np.zeros((16, 16, 3), dtype=np.uint8)
+    t = tracking.MediaPipeHandTracker()
+    try:
+        frame = t.track(image, timestamp_ms=0)
+        assert frame.width == 16
+        assert frame.height == 16
+    finally:
+        t.close()
+
+
+# ---------------------------------------------------------------------------
+# Single-thread ownership: MediaPipeHandTracker detects cross-thread use
+# ---------------------------------------------------------------------------
+
+
+def test_track_raises_if_called_from_different_thread() -> None:
+    """Structural assertion: track() from a non-owner thread raises RuntimeError.
+
+    AirPilot's run() loop is single-threaded (no worker thread is spawned), so
+    this invariant holds in production.  The guard detects accidental violations
+    early and prevents the GIL crash PyEval_RestoreThread causes in Python 3.11.
+    """
+    import threading
+
+    t = tracking.MediaPipeHandTracker()
+    error_from_thread: list[Exception] = []
+
+    def _wrong_thread() -> None:
+        image = np.zeros((8, 8, 3), dtype=np.uint8)
+        try:
+            t.track(image, timestamp_ms=0)
+        except RuntimeError as exc:
+            error_from_thread.append(exc)
+
+    worker = threading.Thread(target=_wrong_thread)
+    worker.start()
+    worker.join(timeout=5)
+    # close() must be called from the owner thread
+    t.close()
+
+    assert len(error_from_thread) == 1
+    assert "single thread" in str(error_from_thread[0]).lower() or "thread" in str(
+        error_from_thread[0]
+    )
+
+
+def test_close_raises_if_called_from_different_thread() -> None:
+    """close() must also be called from the owner thread."""
+    import threading
+
+    t = tracking.MediaPipeHandTracker()
+    error_from_thread: list[Exception] = []
+
+    def _wrong_thread() -> None:
+        try:
+            t.close()
+        except RuntimeError as exc:
+            error_from_thread.append(exc)
+
+    worker = threading.Thread(target=_wrong_thread)
+    worker.start()
+    worker.join(timeout=5)
+    t.close()  # legitimate close from owner
+
+    assert len(error_from_thread) == 1
