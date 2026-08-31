@@ -309,6 +309,10 @@ def test_tracking_loss_and_recovery() -> None:
     recovered = sut.process(frame(300))
     assert recovered.status == "tracking"
     assert not recovered.tracking_lost
+    assert recovered.move is None
+
+    resumed = sut.process(frame(360, wrist=(0.55, 0.50)))
+    assert resumed.move is not None
 
 
 def test_tracking_loss_releases_drag() -> None:

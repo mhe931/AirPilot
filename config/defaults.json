@@ -504,18 +504,18 @@
     "shortcut_mode_gesture": "secondary_thumb_pinky_hold"
   },
   "cursor": {
-    "camera_max_x": 0.84,
-    "camera_max_y": 0.82,
-    "camera_min_x": 0.16,
-    "camera_min_y": 0.12,
-    "dead_zone_px": 3,
+    "camera_max_x": 0.69,
+    "camera_max_y": 0.73,
+    "camera_min_x": 0.31,
+    "camera_min_y": 0.27,
+    "dead_zone_px": 2,
     "mirror_x": true,
     "screen_height": 1080,
     "screen_left": 0,
     "screen_top": 0,
     "screen_width": 1920,
-    "sensitivity": 1.35,
-    "smoothing_alpha": 0.42
+    "sensitivity": 1.6,
+    "smoothing_alpha": 0.55
   },
   "gesture_bindings": [
     {
@@ -633,7 +633,7 @@
     "tracker_detection_confidence": 0.55,
     "tracker_tracking_confidence": 0.55
   },
-  "schema_version": 13,
+  "schema_version": 14,
   "text_styles": {
     "help_font_family": "Consolas",
     "help_font_size": 10,

@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
-CURRENT_SCHEMA_VERSION = 13
+CURRENT_SCHEMA_VERSION = 14
 
 # ---------------------------------------------------------------------------
 # Gesture Binding schema (data-driven configurable bindings)
@@ -232,6 +232,16 @@ _V4_CURSOR_DEFAULTS = {
     "dead_zone_px": 5,
 }
 
+_V13_CURSOR_DEFAULTS = {
+    "camera_min_x": 0.16,
+    "camera_max_x": 0.84,
+    "camera_min_y": 0.12,
+    "camera_max_y": 0.82,
+    "sensitivity": 1.35,
+    "smoothing_alpha": 0.42,
+    "dead_zone_px": 3,
+}
+
 _V8_GESTURE_DEFAULTS = {
     "thumb_open_threshold": 0.95,
 }
@@ -299,13 +309,13 @@ class CursorConfig:
     screen_top: int = 0
     screen_width: int = 1920
     screen_height: int = 1080
-    camera_min_x: float = 0.16
-    camera_max_x: float = 0.84
-    camera_min_y: float = 0.12
-    camera_max_y: float = 0.82
-    sensitivity: float = 1.35
-    smoothing_alpha: float = 0.42
-    dead_zone_px: int = 3
+    camera_min_x: float = 0.31
+    camera_max_x: float = 0.69
+    camera_min_y: float = 0.27
+    camera_max_y: float = 0.73
+    sensitivity: float = 1.6
+    smoothing_alpha: float = 0.55
+    dead_zone_px: int = 2
     mirror_x: bool = True
 
 
@@ -595,6 +605,8 @@ def _config_from_dict(raw: dict[str, Any]) -> AppConfig:
         return _migrate_v11_config(raw)
     if version == 12:
         return _migrate_v12_config(raw)
+    if version == 13:
+        return _migrate_v13_config(raw)
     if version != CURRENT_SCHEMA_VERSION:
         raise ValueError(f"Unsupported AirPilot config schema_version {version!r}")
     return AppConfig(
@@ -621,7 +633,7 @@ def _migrate_v1_config(raw: dict[str, Any]) -> AppConfig:
     return AppConfig(
         schema_version=CURRENT_SCHEMA_VERSION,
         gestures=_gestures_from_section(_migrated_v6_gestures(_section(raw, "gestures"))),
-        cursor=CursorConfig(**cursor_section),
+        cursor=CursorConfig(**_migrated_v14_cursor(cursor_section)),
         runtime=RuntimeConfig(**_section(raw, "runtime")),
     )
 
@@ -632,7 +644,9 @@ def _migrate_v2_config(raw: dict[str, Any]) -> AppConfig:
     return AppConfig(
         schema_version=CURRENT_SCHEMA_VERSION,
         gestures=_gestures_from_section(_migrated_v6_gestures(_section(raw, "gestures"))),
-        cursor=_migrated_cursor(_section(raw, "cursor")),
+        cursor=CursorConfig(
+            **_migrated_v14_cursor(asdict(_migrated_cursor(_section(raw, "cursor"))))
+        ),
         runtime=RuntimeConfig(**runtime_section),
     )
 
@@ -643,7 +657,9 @@ def _migrate_v3_config(raw: dict[str, Any]) -> AppConfig:
     return AppConfig(
         schema_version=CURRENT_SCHEMA_VERSION,
         gestures=_gestures_from_section(_migrated_v6_gestures(_section(raw, "gestures"))),
-        cursor=_migrated_cursor(_section(raw, "cursor")),
+        cursor=CursorConfig(
+            **_migrated_v14_cursor(asdict(_migrated_cursor(_section(raw, "cursor"))))
+        ),
         runtime=RuntimeConfig(**runtime_section),
     )
 
@@ -712,7 +728,7 @@ def _migrate_v4_config(raw: dict[str, Any]) -> AppConfig:
     return AppConfig(
         schema_version=CURRENT_SCHEMA_VERSION,
         gestures=_gestures_from_section(_migrated_v6_gestures(_section(raw, "gestures"))),
-        cursor=CursorConfig(**_migrated_v5_cursor(_section(raw, "cursor"))),
+        cursor=CursorConfig(**_migrated_v14_cursor(_migrated_v5_cursor(_section(raw, "cursor")))),
         actions=_actions_from_section(_migrated_v7_actions(_section(raw, "actions"))),
         runtime=RuntimeConfig(**runtime_section),
     )
@@ -722,7 +738,7 @@ def _migrate_v5_config(raw: dict[str, Any]) -> AppConfig:
     return AppConfig(
         schema_version=CURRENT_SCHEMA_VERSION,
         gestures=_gestures_from_section(_migrated_v6_gestures(_section(raw, "gestures"))),
-        cursor=CursorConfig(**_section(raw, "cursor")),
+        cursor=CursorConfig(**_migrated_v14_cursor(_section(raw, "cursor"))),
         actions=_actions_from_section(_migrated_v7_actions(_section(raw, "actions"))),
         runtime=RuntimeConfig(**_section(raw, "runtime")),
     )
@@ -732,7 +748,7 @@ def _migrate_v6_config(raw: dict[str, Any]) -> AppConfig:
     return AppConfig(
         schema_version=CURRENT_SCHEMA_VERSION,
         gestures=_gestures_from_section(_section(raw, "gestures")),
-        cursor=CursorConfig(**_section(raw, "cursor")),
+        cursor=CursorConfig(**_migrated_v14_cursor(_section(raw, "cursor"))),
         actions=_actions_from_section(_migrated_v7_actions(_section(raw, "actions"))),
         runtime=RuntimeConfig(**_section(raw, "runtime")),
     )
@@ -742,7 +758,7 @@ def _migrate_v7_config(raw: dict[str, Any]) -> AppConfig:
     return AppConfig(
         schema_version=CURRENT_SCHEMA_VERSION,
         gestures=_gestures_from_section(_migrated_v9_gestures(_section(raw, "gestures"))),
-        cursor=CursorConfig(**_section(raw, "cursor")),
+        cursor=CursorConfig(**_migrated_v14_cursor(_section(raw, "cursor"))),
         actions=_actions_from_section(_section(raw, "actions")),
         runtime=RuntimeConfig(**_section(raw, "runtime")),
     )
@@ -752,7 +768,7 @@ def _migrate_v8_config(raw: dict[str, Any]) -> AppConfig:
     return AppConfig(
         schema_version=CURRENT_SCHEMA_VERSION,
         gestures=_gestures_from_section(_migrated_v9_gestures(_section(raw, "gestures"))),
-        cursor=CursorConfig(**_section(raw, "cursor")),
+        cursor=CursorConfig(**_migrated_v14_cursor(_section(raw, "cursor"))),
         actions=_actions_from_section(_section(raw, "actions")),
         runtime=RuntimeConfig(**_section(raw, "runtime")),
     )
@@ -763,18 +779,18 @@ def _migrate_v9_config(raw: dict[str, Any]) -> AppConfig:
     return AppConfig(
         schema_version=CURRENT_SCHEMA_VERSION,
         gestures=_gestures_from_section(_section(raw, "gestures")),
-        cursor=CursorConfig(**_section(raw, "cursor")),
+        cursor=CursorConfig(**_migrated_v14_cursor(_section(raw, "cursor"))),
         actions=_actions_from_section(_section(raw, "actions")),
         runtime=RuntimeConfig(**_section(raw, "runtime")),
     )
 
 
 def _migrate_v12_config(raw: dict[str, Any]) -> AppConfig:
-    """v12 → v13: TextStyleConfig gains overlay_bg_opacity and sidebar_bg_opacity."""
+    """v12 → current: text style opacity and faster pointer defaults."""
     return AppConfig(
         schema_version=CURRENT_SCHEMA_VERSION,
         gestures=_gestures_from_section(_section(raw, "gestures")),
-        cursor=CursorConfig(**_section(raw, "cursor")),
+        cursor=CursorConfig(**_migrated_v14_cursor(_section(raw, "cursor"))),
         actions=_actions_from_section(_section(raw, "actions")),
         runtime=RuntimeConfig(**_section(raw, "runtime")),
         gesture_bindings=_bindings_from_list(raw.get("gesture_bindings")),
@@ -787,7 +803,20 @@ def _migrate_v11_config(raw: dict[str, Any]) -> AppConfig:
     return AppConfig(
         schema_version=CURRENT_SCHEMA_VERSION,
         gestures=_gestures_from_section(_section(raw, "gestures")),
-        cursor=CursorConfig(**_section(raw, "cursor")),
+        cursor=CursorConfig(**_migrated_v14_cursor(_section(raw, "cursor"))),
+        actions=_actions_from_section(_section(raw, "actions")),
+        runtime=RuntimeConfig(**_section(raw, "runtime")),
+        gesture_bindings=_bindings_from_list(raw.get("gesture_bindings")),
+        text_styles=_text_style_from_section(_section(raw, "text_styles")),
+    )
+
+
+def _migrate_v13_config(raw: dict[str, Any]) -> AppConfig:
+    """v13 → current: update untouched cursor defaults for faster laptop control."""
+    return AppConfig(
+        schema_version=CURRENT_SCHEMA_VERSION,
+        gestures=_gestures_from_section(_section(raw, "gestures")),
+        cursor=CursorConfig(**_migrated_v14_cursor(_section(raw, "cursor"))),
         actions=_actions_from_section(_section(raw, "actions")),
         runtime=RuntimeConfig(**_section(raw, "runtime")),
         gesture_bindings=_bindings_from_list(raw.get("gesture_bindings")),
@@ -800,7 +829,7 @@ def _migrate_v10_config(raw: dict[str, Any]) -> AppConfig:
     return AppConfig(
         schema_version=CURRENT_SCHEMA_VERSION,
         gestures=_gestures_from_section(_section(raw, "gestures")),
-        cursor=CursorConfig(**_section(raw, "cursor")),
+        cursor=CursorConfig(**_migrated_v14_cursor(_section(raw, "cursor"))),
         actions=_actions_from_section(_section(raw, "actions")),
         runtime=RuntimeConfig(**_section(raw, "runtime")),
         gesture_bindings=_bindings_from_list(raw.get("gesture_bindings")),
@@ -831,6 +860,15 @@ def _migrated_v5_cursor(raw: dict[str, Any]) -> dict[str, Any]:
     cursor_section = dict(raw)
     defaults = CursorConfig()
     for field_name, old_value in _V4_CURSOR_DEFAULTS.items():
+        if cursor_section.get(field_name) == old_value:
+            cursor_section[field_name] = getattr(defaults, field_name)
+    return cursor_section
+
+
+def _migrated_v14_cursor(raw: dict[str, Any]) -> dict[str, Any]:
+    cursor_section = dict(raw)
+    defaults = CursorConfig()
+    for field_name, old_value in _V13_CURSOR_DEFAULTS.items():
         if cursor_section.get(field_name) == old_value:
             cursor_section[field_name] = getattr(defaults, field_name)
     return cursor_section

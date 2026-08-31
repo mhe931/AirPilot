@@ -31,6 +31,7 @@ import pytest
 
 from airpilot.actions import dispatch_action
 from airpilot.app import (
+    _editable_shortcut_gesture_ids,
     _format_help_header,
     _help_sections,
     _sidebar_lines,
@@ -478,6 +479,54 @@ def test_sidebar_shows_catalog_label_for_non_custom_binding() -> None:
     lines = _sidebar_lines(_frame(), _events(), config, armed=True)
 
     assert any("next_slide" in ln or "my_b" in ln for ln in lines)
+
+
+def test_help_shows_current_custom_gesture_binding_shortcut() -> None:
+    config = AppConfig()
+    config.gesture_bindings = [
+        GestureBinding(
+            id="go_last_tab",
+            enabled=True,
+            hand="either",
+            thumb="folded",
+            index="extended",
+            movement="left",
+            trigger="release",
+            shortcut_keys=("ctrl", "9"),
+        )
+    ]
+    sync_custom_shortcuts(config)
+
+    sections = _help_sections(config)
+    custom = next(s for s in sections if s.title == "CUSTOM GESTURE BINDINGS")
+    rows = "\n".join(custom.lines)
+
+    assert "Ctrl+9" in rows
+    assert "thumb folded" in rows
+    assert "index extended" in rows
+    assert "move left" in rows
+    assert "release" in rows
+
+
+def test_help_updates_after_mapping_change_from_same_config_object() -> None:
+    config = AppConfig()
+    before = "\n".join(line for section in _help_sections(config) for line in section.lines)
+
+    config.actions.gesture_actions["shortcut_ring_release"] = "browser.refresh"
+    after = "\n".join(line for section in _help_sections(config) for line in section.lines)
+
+    assert "Next slide" in before
+    assert "Refresh" in after
+    assert "Shortcut mode + thumb/ring pinch" in after
+
+
+def test_settings_exposes_all_editable_shortcut_gesture_ids() -> None:
+    editable = _editable_shortcut_gesture_ids()
+
+    assert "shortcut_index_release" in editable
+    assert "shortcut_middle_hold" in editable
+    assert "arm_secondary_middle_hold" in editable
+    assert len(editable) == len(set(editable))
 
 
 # ---------------------------------------------------------------------------

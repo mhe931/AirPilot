@@ -62,6 +62,7 @@ class GestureEngine:
     _click_anchor_position: CursorPosition | None = None
     _clutch_active: bool = False
     _clutch_anchor_position: CursorPosition | None = None
+    _suppress_next_pointer_move: bool = False
 
     def process(self, frame: TrackingFrame) -> GestureEvents:
         hand = frame.hand
@@ -134,11 +135,11 @@ class GestureEngine:
         if scroll_now:
             move = None
         elif self._drag_active:
-            move = self.cursor_mapper.map(pointer_reference)
+            move = self._map_pointer(pointer_reference)
         elif self._clutch_active:
             move = self._clutch_anchor_position
         elif not left_now:
-            move = self.cursor_mapper.map(pointer_reference)
+            move = self._map_pointer(pointer_reference)
         events = GestureEvents(
             move=move,
             paused_changed=pause_changed,
@@ -209,6 +210,7 @@ class GestureEngine:
             self._reset_gesture_state()
             self._tracking_lost_reported = True
             self.cursor_mapper.reset()
+            self._suppress_next_pointer_move = True
             return GestureEvents(
                 paused=self.paused,
                 tracking_lost=True,
@@ -228,6 +230,23 @@ class GestureEngine:
             active_gesture="paused" if self.paused else "none",
             status="paused" if self.paused else "tracking",
         )
+
+    def rebase_to_current_hand(self, frame: TrackingFrame) -> None:
+        """Keep the current cursor target stable after live cursor setting changes."""
+        hand = frame.hand
+        target = self.cursor_mapper.current
+        if hand is None or target is None or not _has_required_points(hand):
+            self._suppress_next_pointer_move = True
+            return
+        self.cursor_mapper.rebase(_pointer_reference(hand), target)
+        self._suppress_next_pointer_move = False
+
+    def _map_pointer(self, pointer_reference: Landmark) -> CursorPosition | None:
+        mapped = self.cursor_mapper.map(pointer_reference)
+        if self._suppress_next_pointer_move:
+            self._suppress_next_pointer_move = False
+            return None
+        return mapped
 
     def _process_left(
         self,

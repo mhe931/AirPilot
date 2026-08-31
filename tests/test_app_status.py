@@ -578,6 +578,9 @@ class _FakeHelpBackend(HelpBackend):
     def is_open(self) -> bool:
         return not self.closed
 
+    def force_refresh(self) -> None:
+        pass
+
 
 # ---------------------------------------------------------------------------
 # New tests for opacity, dashboard, maximize-disable, and sidebar
