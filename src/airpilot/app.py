@@ -21,13 +21,16 @@ import pyautogui
 from cv2.typing import MatLike
 
 from airpilot.actions import (
+    SHORTCUT_GESTURES,
     ActionRouter,
+    _gesture_label,
     action_help_lines,
     dispatch_action,
     validate_action_config,
 )
 from airpilot.camera import OpenCVCamera, list_cameras
 from airpilot.config import (
+    ActionConfig,
     AppConfig,
     GestureBinding,
     TextStyleConfig,
@@ -452,7 +455,14 @@ def run(
         action_router = ActionRouter(config.actions, config.gestures)
         binding_matcher = GestureBindingMatcher(config.gesture_bindings, config.gestures)
         help_window = HelpWindow(visible=config.runtime.show_gesture_help)
-        settings_window = SettingsWindow(config, None)
+        last_frame: TrackingFrame | None = None
+
+        def _on_settings_applied() -> None:
+            if last_frame is not None:
+                engine.rebase_to_current_hand(last_frame)
+            help_window.refresh(config)
+
+        settings_window = SettingsWindow(config, None, on_apply=_on_settings_applied)
         mouse = PyAutoGuiMouseController(
             emergency_corner_failsafe=config.runtime.emergency_corner_failsafe,
         )
@@ -467,6 +477,7 @@ def run(
             image = _prepare_camera_image(camera_frame.image, config)
             try:
                 frame = tracker.track(image, camera_frame.timestamp_ms)
+                last_frame = frame
                 _tracker_error_streak = 0
             except Exception as exc:
                 _tracker_error_streak += 1
@@ -477,6 +488,7 @@ def run(
                     height=camera_frame.height,
                     hand=None,
                 )
+                last_frame = frame
                 if stats.tracking_error_events <= 3 or stats.tracking_error_events % 30 == 0:
                     print(
                         "AirPilot warning: tracking failed for one frame; "
@@ -1129,6 +1141,26 @@ def _controls_text(config: AppConfig, *, mouse_output_locked: bool = False) -> s
     return "Controls: A arm | P pause | H help | S settings | Q quit"
 
 
+_SHORTCUT_GESTURE_ORDER: tuple[str, ...] = (
+    "arm_secondary_middle_hold",
+    "help_secondary_index_hold",
+    "shortcut_index_release",
+    "shortcut_index_hold",
+    "shortcut_middle_release",
+    "shortcut_middle_hold",
+    "shortcut_ring_release",
+    "shortcut_pinky_release",
+)
+
+
+def _editable_shortcut_gesture_ids() -> tuple[str, ...]:
+    ordered = [
+        gesture_id for gesture_id in _SHORTCUT_GESTURE_ORDER if gesture_id in SHORTCUT_GESTURES
+    ]
+    ordered.extend(sorted(SHORTCUT_GESTURES.difference(ordered)))
+    return tuple(ordered)
+
+
 @dataclass(slots=True)
 class HelpBounds:
     left: int
@@ -1149,6 +1181,8 @@ class HelpBackend(Protocol):
     def close(self) -> None: ...
 
     def is_open(self) -> bool: ...
+
+    def force_refresh(self) -> None: ...
 
 
 def _default_help_backend_factory() -> HelpBackend:
@@ -1184,6 +1218,11 @@ class HelpWindow:
             self.visible = False
             self._backend = None
 
+    def refresh(self, config: AppConfig) -> None:
+        if self._backend is not None:
+            self._backend.force_refresh()
+        self.update(config)
+
     def close(self) -> None:
         if self._backend is not None:
             self._backend.close()
@@ -1198,9 +1237,16 @@ class SettingsWindow:
     Apply persists to the config file; Cancel discards; Reset restores defaults.
     """
 
-    def __init__(self, config: AppConfig, config_path: Path | None = None) -> None:
+    def __init__(
+        self,
+        config: AppConfig,
+        config_path: Path | None = None,
+        *,
+        on_apply: Callable[[], None] | None = None,
+    ) -> None:
         self._config = config
         self._config_path = config_path
+        self._on_apply = on_apply
         self._root: tk.Tk | None = None
         self._window: tk.Toplevel | None = None
 
@@ -1272,6 +1318,12 @@ class SettingsWindow:
         nb.add(bindings_frame, text="Gesture Bindings")
         self._build_bindings_tab(bindings_frame)
 
+        # --- Shortcut-mode mappings tab ---
+        shortcuts_frame = ttk.Frame(nb, padding=10)
+        nb.add(shortcuts_frame, text="Shortcut Mode")
+        self._shortcut_action_vars: dict[str, tk.StringVar] = {}
+        self._build_shortcut_actions_tab(shortcuts_frame)
+
         # --- Typography tab ---
         typo_frame = ttk.Frame(nb, padding=10)
         nb.add(typo_frame, text="Typography")
@@ -1311,8 +1363,20 @@ class SettingsWindow:
             ),
             (
                 "Pointer sensitivity",
-                "Speed multiplier for cursor movement (0.1–5.0)",
+                "Speed multiplier for cursor movement (0.1–10.0)",
                 tk.DoubleVar(value=c.sensitivity),
+                ("from_", "to", "increment"),
+            ),
+            (
+                "Horizontal hand range %",
+                "Camera width used to reach screen edges (20–100; lower = faster)",
+                tk.IntVar(value=int(round((c.camera_max_x - c.camera_min_x) * 100))),
+                ("from_", "to", "increment"),
+            ),
+            (
+                "Vertical hand range %",
+                "Camera height used to reach screen edges (20–100; lower = faster)",
+                tk.IntVar(value=int(round((c.camera_max_y - c.camera_min_y) * 100))),
                 ("from_", "to", "increment"),
             ),
             (
@@ -1332,7 +1396,9 @@ class SettingsWindow:
             "Thumb angle target (°)": (0.0, 180.0, 1.0),
             "Thumb angle tolerance (°)": (1.0, 45.0, 0.5),
             "Activation hysteresis (°)": (0.0, 30.0, 0.5),
-            "Pointer sensitivity": (0.1, 5.0, 0.05),
+            "Pointer sensitivity": (0.1, 10.0, 0.05),
+            "Horizontal hand range %": (20, 100, 1),
+            "Vertical hand range %": (20, 100, 1),
             "Pointer smoothing (0–1)": (0.05, 1.0, 0.01),
             "Pointer dead zone (px)": (0, 20, 1),
         }
@@ -1355,6 +1421,38 @@ class SettingsWindow:
             text="Use angle-based activation (recommended)",
             variable=self._use_angle_var,
         ).grid(row=cb_row, column=0, columnspan=3, sticky="w", pady=(8, 3))
+
+    def _build_shortcut_actions_tab(self, frame: ttk.Frame) -> None:
+        ttk.Label(
+            frame,
+            text=(
+                "Edit the built-in two-hand Shortcut Mode gesture mappings. "
+                "Choose an enabled catalog action, or leave blank to disable a mapping."
+            ),
+            wraplength=520,
+            justify="left",
+        ).grid(row=0, column=0, columnspan=3, sticky="ew", pady=(0, 10))
+
+        action_ids = sorted(
+            action_id
+            for action_id, entry in self._config.actions.catalog.items()
+            if not action_id.startswith("custom.")
+            and (entry.enabled or action_id.startswith("ui."))
+        )
+        values = [""] + action_ids
+        for row_idx, gesture_id in enumerate(_editable_shortcut_gesture_ids(), start=1):
+            ttk.Label(frame, text=_gesture_label(gesture_id) + ":", anchor="e").grid(
+                row=row_idx, column=0, sticky="e", pady=3, padx=(0, 8)
+            )
+            var = tk.StringVar(value=self._config.actions.gesture_actions.get(gesture_id, ""))
+            ttk.Combobox(frame, textvariable=var, values=values, state="readonly", width=28).grid(
+                row=row_idx, column=1, sticky="ew", pady=3
+            )
+            self._shortcut_action_vars[gesture_id] = var
+            ttk.Label(frame, text=gesture_id, foreground="gray", anchor="w").grid(
+                row=row_idx, column=2, sticky="w", padx=(10, 0), pady=3
+            )
+        frame.columnconfigure(1, weight=1)
 
     def _build_scroll_tab(self, frame: ttk.Frame) -> None:
         g = self._config.gestures
@@ -1995,12 +2093,40 @@ class SettingsWindow:
         g = self._config.gestures
         c = self._config.cursor
         try:
+            if hasattr(self, "_bindings_work"):
+                binding_errors = validate_gesture_bindings(self._bindings_work)
+                if binding_errors:
+                    self._binding_error_var.set(
+                        "Validation: "
+                        + "; ".join(binding_errors[:3])
+                        + (" (…more)" if len(binding_errors) > 3 else "")
+                    )
+                    return
+            updated_mappings: dict[str, str] | None = None
+            if hasattr(self, "_shortcut_action_vars"):
+                updated_mappings = {
+                    gesture_id: str(var.get()).strip()
+                    for gesture_id, var in self._shortcut_action_vars.items()
+                    if str(var.get()).strip()
+                }
+                validate_action_config(
+                    ActionConfig(
+                        enabled=self._config.actions.enabled,
+                        risky_actions_enabled=self._config.actions.risky_actions_enabled,
+                        shortcut_mode_gesture=self._config.actions.shortcut_mode_gesture,
+                        gesture_actions=dict(updated_mappings),
+                        catalog=dict(self._config.actions.catalog),
+                    )
+                )
+
             mv = self._mouse_vars
             g.thumb_angle_target_deg = float(mv["Thumb angle target (°)"].get())  # type: ignore[no-untyped-call]
             g.thumb_angle_tolerance_deg = float(mv["Thumb angle tolerance (°)"].get())  # type: ignore[no-untyped-call]
             g.thumb_angle_hysteresis_deg = float(mv["Activation hysteresis (°)"].get())  # type: ignore[no-untyped-call]
             g.use_thumb_angle_activation = bool(self._use_angle_var.get())
             c.sensitivity = float(mv["Pointer sensitivity"].get())  # type: ignore[no-untyped-call]
+            horizontal_range_pct = int(mv["Horizontal hand range %"].get())  # type: ignore[no-untyped-call]
+            vertical_range_pct = int(mv["Vertical hand range %"].get())  # type: ignore[no-untyped-call]
             c.smoothing_alpha = float(mv["Pointer smoothing (0–1)"].get())  # type: ignore[no-untyped-call]
             c.dead_zone_px = int(mv["Pointer dead zone (px)"].get())  # type: ignore[no-untyped-call]
 
@@ -2014,7 +2140,13 @@ class SettingsWindow:
             g.thumb_angle_target_deg = max(0.0, min(180.0, g.thumb_angle_target_deg))
             g.thumb_angle_tolerance_deg = max(1.0, min(45.0, g.thumb_angle_tolerance_deg))
             g.thumb_angle_hysteresis_deg = max(0.0, min(30.0, g.thumb_angle_hysteresis_deg))
-            c.sensitivity = max(0.1, min(5.0, c.sensitivity))
+            c.sensitivity = max(0.1, min(10.0, c.sensitivity))
+            horizontal_range = max(20, min(100, horizontal_range_pct)) / 100.0
+            vertical_range = max(20, min(100, vertical_range_pct)) / 100.0
+            c.camera_min_x = 0.5 - horizontal_range / 2.0
+            c.camera_max_x = 0.5 + horizontal_range / 2.0
+            c.camera_min_y = 0.5 - vertical_range / 2.0
+            c.camera_max_y = 0.5 + vertical_range / 2.0
             c.smoothing_alpha = max(0.05, min(1.0, c.smoothing_alpha))
             c.dead_zone_px = max(0, min(20, c.dead_zone_px))
             g.scroll_sensitivity = max(0.1, min(10.0, g.scroll_sensitivity))
@@ -2026,6 +2158,10 @@ class SettingsWindow:
                 del self._config.gesture_bindings[:]
                 self._config.gesture_bindings.extend(self._bindings_work)
                 sync_custom_shortcuts(self._config)
+
+            if updated_mappings is not None:
+                self._config.actions.gesture_actions.clear()
+                self._config.actions.gesture_actions.update(updated_mappings)
 
             # Typography settings
             if hasattr(self, "_typo_vars"):
@@ -2056,9 +2192,14 @@ class SettingsWindow:
                         min(1.0, float(tv["Sidebar bg opacity"].get())),  # type: ignore[no-untyped-call]
                     )
 
+            validate_action_config(self._config.actions)
             save_config(self._config, self._config_path)
-        except (ValueError, tk.TclError):
-            pass
+            if self._on_apply is not None:
+                self._on_apply()
+        except (ValueError, tk.TclError) as exc:
+            if hasattr(self, "_binding_error_var"):
+                self._binding_error_var.set(f"Settings not saved: {exc}")
+            return
         self.close()
 
     def _reset(self) -> None:
@@ -2072,6 +2213,8 @@ class SettingsWindow:
         mv["Thumb angle tolerance (°)"].set(dg.thumb_angle_tolerance_deg)
         mv["Activation hysteresis (°)"].set(dg.thumb_angle_hysteresis_deg)
         mv["Pointer sensitivity"].set(dc.sensitivity)
+        mv["Horizontal hand range %"].set(int(round((dc.camera_max_x - dc.camera_min_x) * 100)))
+        mv["Vertical hand range %"].set(int(round((dc.camera_max_y - dc.camera_min_y) * 100)))
         mv["Pointer smoothing (0–1)"].set(dc.smoothing_alpha)
         mv["Pointer dead zone (px)"].set(dc.dead_zone_px)
         self._use_angle_var.set(dg.use_thumb_angle_activation)
@@ -2088,6 +2231,11 @@ class SettingsWindow:
             self._bindings_work = copy.deepcopy(_default_gesture_bindings())
             self._current_binding_idx = None
             self._refresh_binding_list()
+
+        if hasattr(self, "_shortcut_action_vars"):
+            defaults = ActionConfig()
+            for gesture_id, var in self._shortcut_action_vars.items():
+                var.set(defaults.gesture_actions.get(gesture_id, ""))
 
         if hasattr(self, "_typo_vars"):
             dt = TextStyleConfig()
@@ -2131,11 +2279,15 @@ class _TkHelpBackend:
             opacity = max(0.1, min(1.0, config.text_styles.help_opacity))
             with suppress(tk.TclError):
                 self._window.attributes("-alpha", opacity)
-        signature = json.dumps(action_help_lines(config.actions, max_actions=None), sort_keys=True)
+        sections = _help_sections(config)
+        signature = json.dumps(
+            [(section.title, section.lines) for section in sections],
+            sort_keys=True,
+        )
         filter_text = self._search_var.get().strip().lower() if self._search_var else ""
         signature = f"{signature}\nfilter={filter_text}"
         if signature != self._signature:
-            self._populate(config)
+            self._populate_sections(sections, filter_text)
             self._signature = signature
         self._pump()
 
@@ -2160,6 +2312,9 @@ class _TkHelpBackend:
             return bool(self._window.winfo_exists())
         except tk.TclError:
             return False
+
+    def force_refresh(self) -> None:
+        self._signature = None
 
     def _create_window(self, config: AppConfig) -> None:
         self._root = _TkSharedRoot.acquire()
@@ -2249,11 +2404,10 @@ class _TkHelpBackend:
             pady=(10, 0),
         )
 
-    def _populate(self, config: AppConfig) -> None:
+    def _populate_sections(self, sections: Sequence[HelpSection], filter_text: str) -> None:
         if self._tree is None or self._category_list is None:
             return
-        filter_text = self._search_var.get().strip().lower() if self._search_var else ""
-        sections = _filter_help_sections(_help_sections(config), filter_text)
+        sections = _filter_help_sections(sections, filter_text)
 
         # Clear existing content
         self._tree.delete(*self._tree.get_children())
@@ -2332,7 +2486,14 @@ class _TkHelpBackend:
 
 
 def _help_lines(config: AppConfig) -> list[str]:
-    return ["AirPilot Help", ""] + action_help_lines(config.actions, max_actions=None)
+    lines = ["AirPilot Help", ""] + action_help_lines(config.actions, max_actions=None)
+    binding_lines = _gesture_binding_help_lines(config)
+    if binding_lines:
+        lines.extend(
+            ["", "CUSTOM GESTURE BINDINGS", "What it does | Gesture | Shortcut/Keys | State"]
+        )
+        lines.extend(binding_lines)
+    return lines
 
 
 def _help_sections(config: AppConfig) -> list[HelpSection]:
@@ -2377,12 +2538,72 @@ def _help_sections(config: AppConfig) -> list[HelpSection]:
             current_lines.append(_format_help_row(line))
     if current_title is not None:
         sections.append(HelpSection(current_title, tuple(current_lines)))
+    binding_lines = _gesture_binding_help_lines(config)
+    if binding_lines:
+        sections.append(
+            HelpSection(
+                "CUSTOM GESTURE BINDINGS",
+                tuple([_format_help_header(), *(_format_help_row(line) for line in binding_lines)]),
+            )
+        )
     return sections
+
+
+def _gesture_binding_help_lines(config: AppConfig) -> list[str]:
+    rows: list[str] = []
+    for binding in config.gesture_bindings:
+        action_label = _binding_action_label(config, binding)
+        keys = shortcut_label(tuple(binding.shortcut_keys)) if binding.shortcut_keys else "--"
+        state = "enabled" if binding.enabled else "available"
+        if not action_label:
+            state = "unassigned"
+        rows.append(
+            _raw_help_row(
+                action_label or binding.id or "(unnamed)",
+                _binding_gesture_label(binding),
+                keys,
+                state,
+            )
+        )
+    return rows
+
+
+def _binding_action_label(config: AppConfig, binding: GestureBinding) -> str:
+    if binding.shortcut_keys:
+        return shortcut_label(tuple(binding.shortcut_keys))
+    entry = config.actions.catalog.get(binding.action_id)
+    if entry is not None:
+        return entry.label
+    return binding.action_id
+
+
+def _binding_gesture_label(binding: GestureBinding) -> str:
+    fingers = [
+        f"{name} {state}"
+        for name, state in (
+            ("thumb", binding.thumb),
+            ("index", binding.index),
+            ("middle", binding.middle),
+            ("ring", binding.ring),
+            ("pinky", binding.pinky),
+        )
+        if state != "any"
+    ]
+    parts = [binding.hand, *fingers]
+    if binding.movement != "none":
+        parts.append(f"move {binding.movement}")
+    if binding.trigger != "enter":
+        parts.append(binding.trigger.replace("_", " "))
+    return "; ".join(parts) if parts else binding.id
 
 
 def _format_help_header() -> str:
     """Format the table header row with emoji + clear column separators."""
     return "  ✦  │ Action                   │ Gesture           │ Keys              │ State"
+
+
+def _raw_help_row(what: str, gesture: str, keys: str, state: str) -> str:
+    return f"{what} | {gesture} | {keys} | {state}"
 
 
 # Emoji lookup by action keyword for the Help table

@@ -38,6 +38,7 @@ from airpilot.safety import MouseSafetyGate
 class _FakeHelpBackend:
     def __init__(self) -> None:
         self._open = True
+        self.refresh_count = 0
 
     def update(self, config: object) -> None:
         pass
@@ -47,6 +48,9 @@ class _FakeHelpBackend:
 
     def is_open(self) -> bool:
         return self._open
+
+    def force_refresh(self) -> None:
+        self.refresh_count += 1
 
 
 class _FakeMouse:
@@ -92,6 +96,16 @@ def test_help_window_open_close_cycle(cycle: int) -> None:
 def test_help_window_toggle_returns_correct_state() -> None:
     hw = _help_window()
     assert hw.toggle() is True
+
+
+def test_help_window_refresh_invalidates_visible_backend() -> None:
+    backend = _FakeHelpBackend()
+    hw = HelpWindow(visible=True, backend_factory=lambda: backend)  # type: ignore[return-value]
+    hw.update(AppConfig())
+
+    hw.refresh(AppConfig())
+
+    assert backend.refresh_count == 1
     assert hw.toggle() is False
     assert hw.toggle() is True
 

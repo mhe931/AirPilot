@@ -130,6 +130,53 @@ def test_higher_sensitivity_produces_larger_followup_movement() -> None:
     assert fast.map(Landmark(x=1.0, y=0.0)).x == 75
 
 
+def test_default_central_hand_region_reaches_screen_edges() -> None:
+    mapper = CursorMapper(CursorConfig(smoothing_alpha=1.0, sensitivity=1.0, dead_zone_px=0))
+
+    top_right = mapper.map(Landmark(x=0.31, y=0.27))
+    bottom_left = mapper.map(Landmark(x=0.69, y=0.73))
+
+    assert top_right.x == 1919
+    assert top_right.y == 0
+    assert bottom_left.x == 0
+    assert bottom_left.y == 1079
+
+
+def test_default_control_region_scales_across_resolutions() -> None:
+    laptop = CursorMapper(
+        CursorConfig(screen_width=1366, screen_height=768, smoothing_alpha=1.0, sensitivity=1.0)
+    )
+    desktop = CursorMapper(
+        CursorConfig(screen_width=3840, screen_height=2160, smoothing_alpha=1.0, sensitivity=1.0)
+    )
+
+    assert laptop.map(Landmark(x=0.31, y=0.27)).x == 1365
+    assert laptop.map(Landmark(x=0.69, y=0.73)).y == 767
+    assert desktop.map(Landmark(x=0.31, y=0.27)).x == 3839
+    assert desktop.map(Landmark(x=0.69, y=0.73)).y == 2159
+
+
+def test_sensitivity_gain_stays_clamped_to_screen_edges() -> None:
+    mapper = CursorMapper(
+        CursorConfig(
+            screen_width=101,
+            screen_height=101,
+            camera_min_x=0.31,
+            camera_max_x=0.69,
+            camera_min_y=0.27,
+            camera_max_y=0.73,
+            smoothing_alpha=1.0,
+            sensitivity=10.0,
+            dead_zone_px=0,
+            mirror_x=False,
+        )
+    )
+
+    mapper.map(Landmark(x=0.50, y=0.50))
+    assert mapper.map(Landmark(x=0.69, y=0.73)).x == 100
+    assert mapper.map(Landmark(x=0.69, y=0.73)).y == 100
+
+
 def test_invalid_calibration_uses_center() -> None:
     mapper = CursorMapper(
         CursorConfig(

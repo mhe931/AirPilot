@@ -525,7 +525,7 @@ def test_run_blocks_pointer_until_armed_without_cursor_feedback_state(
     config.cursor.smoothing_alpha = 1.0
     assert app.run(config, show_preview=True) == 0
 
-    assert mouse.actions == ["move:93,11"]
+    assert mouse.actions == ["move:99,0"]
 
 
 def test_run_releases_drag_on_quit(

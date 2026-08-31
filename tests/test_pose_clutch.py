@@ -98,7 +98,7 @@ def test_thumb_clutch_freezes_and_releases_pointer_without_jump() -> None:
     assert released.move == moving.move
     assert resumed_stationary.move == moving.move
     assert resumed_nudged.move is not None
-    assert 0 < resumed_nudged.move.x - moving.move.x <= 8
+    assert 0 < resumed_nudged.move.x - moving.move.x <= 16
 
 
 def test_thumb_folded_freezes_even_when_index_and_middle_are_straight() -> None:
@@ -115,14 +115,28 @@ def test_thumb_folded_freezes_even_when_index_and_middle_are_straight() -> None:
 
 
 def test_post_clutch_resume_jump_is_bounded_after_large_hand_translation() -> None:
-    sut = GestureEngine(GestureConfig(), CursorMapper(CursorConfig()))
+    sut = GestureEngine(
+        GestureConfig(),
+        CursorMapper(
+            CursorConfig(
+                camera_min_x=0.0,
+                camera_max_x=1.0,
+                camera_min_y=0.0,
+                camera_max_y=1.0,
+                smoothing_alpha=1.0,
+                sensitivity=1.0,
+                dead_zone_px=0,
+                mirror_x=False,
+            )
+        ),
+    )
 
     moving = sut.process(frame(0, pose_hand()))
     sut.process(frame(100, pose_hand(thumb_closed=True)))
     moved_while_closed = sut.process(frame(200, pose_hand(thumb_closed=True, offset=(0.30, 0.0))))
     released = sut.process(frame(300, pose_hand(offset=(0.30, 0.0))))
     resumed_stationary = sut.process(frame(400, pose_hand(offset=(0.30, 0.0))))
-    resumed_nudged = sut.process(frame(500, pose_hand(offset=(0.32, 0.0))))
+    resumed_nudged = sut.process(frame(500, pose_hand(offset=(0.35, 0.0))))
 
     assert moving.move is not None
     assert moved_while_closed.move == moving.move
@@ -133,7 +147,7 @@ def test_post_clutch_resume_jump_is_bounded_after_large_hand_translation() -> No
         <= sut.config.click_freeze_radius_px
     )
     assert resumed_nudged.move is not None
-    assert 0 < _cursor_distance(resumed_stationary.move, resumed_nudged.move) <= 80
+    assert 0 < _cursor_distance(resumed_stationary.move, resumed_nudged.move) <= 120
 
 
 def test_clutch_index_bend_clicks_once_at_frozen_location() -> None:

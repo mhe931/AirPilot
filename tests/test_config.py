@@ -164,13 +164,13 @@ def test_v4_config_updates_untouched_cursor_defaults_for_responsiveness(tmp_path
     loaded = load_config(path)
 
     assert loaded.schema_version == CURRENT_SCHEMA_VERSION
-    assert loaded.cursor.camera_min_x == 0.16
-    assert loaded.cursor.camera_max_x == 0.84
-    assert loaded.cursor.camera_min_y == 0.12
-    assert loaded.cursor.camera_max_y == 0.82
-    assert loaded.cursor.sensitivity == 1.35
-    assert loaded.cursor.smoothing_alpha == 0.42
-    assert loaded.cursor.dead_zone_px == 3
+    assert loaded.cursor.camera_min_x == 0.31
+    assert loaded.cursor.camera_max_x == 0.69
+    assert loaded.cursor.camera_min_y == 0.27
+    assert loaded.cursor.camera_max_y == 0.73
+    assert loaded.cursor.sensitivity == 1.6
+    assert loaded.cursor.smoothing_alpha == 0.55
+    assert loaded.cursor.dead_zone_px == 2
 
 
 def test_v4_config_preserves_custom_cursor_tuning(tmp_path: Path) -> None:
@@ -204,6 +204,84 @@ def test_v4_config_preserves_custom_cursor_tuning(tmp_path: Path) -> None:
     assert loaded.cursor.sensitivity == 1.2
     assert loaded.cursor.smoothing_alpha == 0.5
     assert loaded.cursor.dead_zone_px == 7
+
+
+def test_v13_config_updates_untouched_cursor_defaults_for_fast_central_region(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "config.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 13,
+                "cursor": {
+                    "camera_min_x": 0.16,
+                    "camera_max_x": 0.84,
+                    "camera_min_y": 0.12,
+                    "camera_max_y": 0.82,
+                    "sensitivity": 1.35,
+                    "smoothing_alpha": 0.42,
+                    "dead_zone_px": 3,
+                    "mirror_x": True,
+                },
+                "gestures": {},
+                "actions": {},
+                "runtime": {},
+                "gesture_bindings": [],
+                "text_styles": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_config(path)
+
+    assert loaded.schema_version == CURRENT_SCHEMA_VERSION
+    assert loaded.cursor.camera_min_x == 0.31
+    assert loaded.cursor.camera_max_x == 0.69
+    assert loaded.cursor.camera_min_y == 0.27
+    assert loaded.cursor.camera_max_y == 0.73
+    assert loaded.cursor.sensitivity == 1.6
+    assert loaded.cursor.smoothing_alpha == 0.55
+    assert loaded.cursor.dead_zone_px == 2
+
+
+def test_v13_config_preserves_custom_cursor_tuning(tmp_path: Path) -> None:
+    path = tmp_path / "config.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 13,
+                "cursor": {
+                    "camera_min_x": 0.20,
+                    "camera_max_x": 0.80,
+                    "camera_min_y": 0.20,
+                    "camera_max_y": 0.80,
+                    "sensitivity": 2.25,
+                    "smoothing_alpha": 0.70,
+                    "dead_zone_px": 4,
+                    "mirror_x": True,
+                },
+                "gestures": {},
+                "actions": {},
+                "runtime": {},
+                "gesture_bindings": [],
+                "text_styles": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_config(path)
+
+    assert loaded.schema_version == CURRENT_SCHEMA_VERSION
+    assert loaded.cursor.camera_min_x == 0.20
+    assert loaded.cursor.camera_max_x == 0.80
+    assert loaded.cursor.camera_min_y == 0.20
+    assert loaded.cursor.camera_max_y == 0.80
+    assert loaded.cursor.sensitivity == 2.25
+    assert loaded.cursor.smoothing_alpha == 0.70
+    assert loaded.cursor.dead_zone_px == 4
 
 
 def test_v3_config_migrates_to_actual_orientation_and_operator_direction(
