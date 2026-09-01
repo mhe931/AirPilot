@@ -104,7 +104,9 @@ Controls:
 - `p`: pause/resume while the preview window is focused.
 - `a`: arm/disarm real mouse output while the preview window is focused.
 - `h`: show/hide the native, resizable gesture and action Help window.
-- Move the real pointer to a screen corner to trigger PyAutoGUI's failsafe.
+- Move the pointer manually to a screen corner to disarm mouse output. AirPilot
+  can still deliberately reach every edge and corner; press `a` or use the arm
+  gesture to resume after a manual failsafe stop.
 
 If your webcam feed is already non-mirrored at the driver level, you can change
 `runtime.flip_camera_x` in `%APPDATA%\AirPilot\config.json`.

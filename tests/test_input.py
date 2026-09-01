@@ -38,7 +38,7 @@ def test_recording_mouse_records_hotkeys_without_side_effects() -> None:
     assert mouse.actions == ["hotkey:ctrl+c"]
 
 
-def test_win32_move_raises_failsafe_before_set_cursor_pos() -> None:
+def test_win32_move_allows_airpilot_to_reach_a_virtual_desktop_corner() -> None:
     class FakeUser32:
         called = False
 
@@ -46,6 +46,8 @@ def test_win32_move_raises_failsafe_before_set_cursor_pos() -> None:
             return {76: -10, 77: -20, 78: 20, 79: 40}[metric]
 
         def GetCursorPos(self, _point: object) -> bool:
+            _point._obj.x = 1
+            _point._obj.y = 1
             return True
 
         def SetCursorPos(self, _x: int, _y: int) -> bool:
@@ -57,18 +59,15 @@ def test_win32_move_raises_failsafe_before_set_cursor_pos() -> None:
     )
     controller._user32 = FakeUser32()
     controller._emergency_corner_failsafe = True
+    controller._last_airpilot_position = None
 
-    try:
-        controller.move_to(CursorPosition(-10, -20))
-    except __import__("pyautogui").FailSafeException:
-        pass
-    else:
-        raise AssertionError("failsafe corner did not raise")
+    controller.move_to(CursorPosition(-10, -20))
 
-    assert not controller._user32.called
+    assert controller._user32.called
+    assert controller._last_airpilot_position == CursorPosition(-10, -20)
 
 
-def test_win32_move_raises_failsafe_when_current_position_is_corner() -> None:
+def test_win32_move_can_recover_from_an_airpilot_generated_corner() -> None:
     class FakeUser32:
         called = False
 
@@ -89,13 +88,42 @@ def test_win32_move_raises_failsafe_when_current_position_is_corner() -> None:
     )
     controller._user32 = FakeUser32()
     controller._emergency_corner_failsafe = True
+    controller._last_airpilot_position = CursorPosition(-10, -20)
+
+    controller.move_to(CursorPosition(1, 1))
+
+    assert controller._user32.called
+
+
+def test_win32_move_disarms_when_user_moves_to_a_corner() -> None:
+    class FakeUser32:
+        called = False
+
+        def GetSystemMetrics(self, metric: int) -> int:
+            return {76: -10, 77: -20, 78: 20, 79: 40}[metric]
+
+        def GetCursorPos(self, point: object) -> bool:
+            point._obj.x = -10
+            point._obj.y = -20
+            return True
+
+        def SetCursorPos(self, _x: int, _y: int) -> bool:
+            self.called = True
+            return True
+
+    controller = object.__new__(
+        __import__("airpilot.input", fromlist=["PyAutoGuiMouseController"]).PyAutoGuiMouseController
+    )
+    controller._user32 = FakeUser32()
+    controller._emergency_corner_failsafe = True
+    controller._last_airpilot_position = CursorPosition(1, 1)
 
     try:
-        controller.move_to(CursorPosition(1, 1))
+        controller.move_to(CursorPosition(2, 2))
     except __import__("pyautogui").FailSafeException:
         pass
     else:
-        raise AssertionError("current-position failsafe did not raise")
+        raise AssertionError("manual failsafe corner did not raise")
 
     assert not controller._user32.called
 
