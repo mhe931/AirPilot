@@ -43,36 +43,45 @@ class PyAutoGuiMouseController:
     def __init__(self, *, emergency_corner_failsafe: bool = True) -> None:
         import ctypes
 
-        pyautogui.FAILSAFE = emergency_corner_failsafe
+        # AirPilot implements its own corner check so its deliberate movements
+        # may use every virtual-desktop edge without PyAutoGUI trapping the next
+        # input at a generated corner.
+        pyautogui.FAILSAFE = False
         pyautogui.PAUSE = 0
         self._user32 = ctypes.windll.user32
         self._emergency_corner_failsafe = emergency_corner_failsafe
+        self._last_airpilot_position: CursorPosition | None = None
 
     def move_to(self, position: CursorPosition) -> None:
-        if self._emergency_corner_failsafe and (
-            self._is_failsafe_position(self._current_position())
-            or self._is_failsafe_position(position)
-        ):
+        if self.emergency_stop_requested():
             raise pyautogui.FailSafeException("AirPilot failsafe corner reached")
         if not self._user32.SetCursorPos(position.x, position.y):
             raise OSError("SetCursorPos failed")
+        self._last_airpilot_position = position
 
     def left_click(self) -> None:
+        self._raise_if_emergency_stop_requested()
         pyautogui.click(button="left")
 
     def right_click(self) -> None:
+        self._raise_if_emergency_stop_requested()
         pyautogui.click(button="right")
 
     def middle_click(self) -> None:
+        self._raise_if_emergency_stop_requested()
         pyautogui.click(button="middle")
 
     def drag_start(self) -> None:
+        self._raise_if_emergency_stop_requested()
         pyautogui.mouseDown(button="left")
 
     def drag_end(self) -> None:
+        # Releasing a held button is always safe and is required to leave the
+        # system consistent when a manually requested failsafe disarms AirPilot.
         pyautogui.mouseUp(button="left")
 
     def scroll(self, units: int) -> None:
+        self._raise_if_emergency_stop_requested()
         pyautogui.scroll(units)
 
     def hotkey(self, keys: tuple[str, ...]) -> None:
@@ -81,6 +90,7 @@ class PyAutoGuiMouseController:
         Uses explicit keyDown/keyUp with a try/finally so that all pressed keys
         are released even if an exception is raised mid-combination.
         """
+        self._raise_if_emergency_stop_requested()
         pressed: list[str] = []
         try:
             for key in keys:
@@ -102,9 +112,14 @@ class PyAutoGuiMouseController:
         """
 
     def emergency_stop_requested(self) -> bool:
-        return self._emergency_corner_failsafe and self._is_failsafe_position(
-            self._current_position()
-        )
+        if not self._emergency_corner_failsafe:
+            return False
+        current = self._current_position()
+        return self._is_failsafe_position(current) and current != self._last_airpilot_position
+
+    def _raise_if_emergency_stop_requested(self) -> None:
+        if self.emergency_stop_requested():
+            raise pyautogui.FailSafeException("AirPilot failsafe corner reached")
 
     def _current_position(self) -> CursorPosition:
         point = _POINT()
